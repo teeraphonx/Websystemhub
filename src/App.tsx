@@ -189,6 +189,14 @@ function App() {
   const handlers = useAppHandlers(state);
   const [showPromoPopup, setShowPromoPopup] = useState(false);
   const [dontShowPromo, setDontShowPromo] = useState(false);
+  const {
+    activeUserTab,
+    selectedCategoryId,
+    setActiveUserTab,
+    setSelectedCategoryId,
+    setView,
+    view,
+  } = state;
   const location = useLocation();
   const navigate = useNavigate();
   const currentRoute = resolveAppRoute(location.pathname);
@@ -197,55 +205,49 @@ function App() {
   const routeUserTab = currentRoute?.kind === 'user' ? currentRoute.userTab : null;
   const routeCategoryId =
     currentRoute?.kind === 'user' ? currentRoute.categoryId : null;
+  const isUserHomeRoute =
+    currentRoute?.kind === 'user' && currentRoute.userTab === 'home';
 
   useEffect(() => {
     if (!currentRoute) {
       return;
     }
 
-    if (state.view !== currentRoute.view) {
-      state.setView(currentRoute.view);
+    if (view !== currentRoute.view) {
+      setView(currentRoute.view);
     }
 
     if (currentRoute.kind === 'user') {
-      if (state.activeUserTab !== currentRoute.userTab) {
-        state.setActiveUserTab(currentRoute.userTab);
+      if (activeUserTab !== currentRoute.userTab) {
+        setActiveUserTab(currentRoute.userTab);
       }
 
-      if (state.selectedCategoryId !== currentRoute.categoryId) {
-        state.setSelectedCategoryId(currentRoute.categoryId);
+      if (selectedCategoryId !== currentRoute.categoryId) {
+        setSelectedCategoryId(currentRoute.categoryId);
       }
 
       return;
     }
 
-    if (state.selectedCategoryId !== null) {
-      state.setSelectedCategoryId(null);
+    if (selectedCategoryId !== null) {
+      setSelectedCategoryId(null);
     }
   }, [
+    activeUserTab,
     currentRoute,
     routeCategoryId,
     routeKind,
     routeUserTab,
     routeView,
-    state.activeUserTab,
-    state.selectedCategoryId,
-    state.setActiveUserTab,
-    state.setSelectedCategoryId,
-    state.setView,
-    state.view,
+    selectedCategoryId,
+    setActiveUserTab,
+    setSelectedCategoryId,
+    setView,
+    view,
   ]);
 
   useEffect(() => {
-    if (state.view !== 'user-home') {
-      setShowPromoPopup(false);
-      setDontShowPromo(false);
-      return;
-    }
-
-    if (isPromoPopupSuppressed()) {
-      setShowPromoPopup(false);
-      setDontShowPromo(false);
+    if (!isUserHomeRoute || isPromoPopupSuppressed()) {
       return;
     }
 
@@ -254,8 +256,12 @@ function App() {
       setShowPromoPopup(true);
     }, 400);
 
-    return () => window.clearTimeout(timeoutId);
-  }, [state.view]);
+    return () => {
+      window.clearTimeout(timeoutId);
+      setShowPromoPopup(false);
+      setDontShowPromo(false);
+    };
+  }, [isUserHomeRoute]);
 
   const handleClosePromoPopup = () => {
     if (dontShowPromo) {
