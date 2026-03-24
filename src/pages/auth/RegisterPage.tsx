@@ -28,7 +28,7 @@ export default function RegisterPage(props: RegisterPageProps) {
       submitLabel="สมัครสมาชิก"
       submitIcon={UserPlus}
       usernameLabel="ชื่อผู้ใช้"
-      usernamePlaceholder="ตั้งชื่อผู้ใช้"
+      usernamePlaceholder="กรอกชื่อผู้ใช้"
       username={props.username}
       onUsernameChange={props.onUsernameChange}
       secondaryFieldLabel="อีเมล"
