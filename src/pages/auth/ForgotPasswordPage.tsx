@@ -4,6 +4,7 @@ import AuthPanel from '../../components/common/AuthPanel';
 
 interface ForgotPasswordPageProps {
   username: string;
+  isSubmitting: boolean;
   onUsernameChange: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onBack: () => void;
@@ -17,7 +18,7 @@ export default function ForgotPasswordPage(props: ForgotPasswordPageProps) {
       submitLabel="ส่งคำขอกู้คืน"
       submitIcon={Wand2}
       usernameLabel="ชื่อผู้ใช้"
-      usernamePlaceholder="กรอกชื่อผู้ใช้"
+      usernamePlaceholder="กรอกชื่อผู้ใช้ หรืออีเมล"
       username={props.username}
       onUsernameChange={props.onUsernameChange}
       password=""
@@ -30,6 +31,7 @@ export default function ForgotPasswordPage(props: ForgotPasswordPageProps) {
       onToggleConfirmPassword={() => {}}
       showPasswordField={false}
       onSubmit={props.onSubmit}
+      isSubmitting={props.isSubmitting}
       backLabel="กลับไปหน้าเข้าสู่ระบบ"
       onBack={props.onBack}
     />

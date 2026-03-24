@@ -28,8 +28,8 @@ export default function PromoPopup({
   }
 
   return (
-    <div className="fixed inset-0 z-[600] flex items-center justify-center bg-[#02050f]/90 p-4 backdrop-blur-md animate-in fade-in duration-500 sm:p-6">
-      <div className="relative flex w-full max-w-[900px] flex-col overflow-hidden rounded-[2rem] border border-[var(--systemhub-border)] bg-[var(--systemhub-base)] shadow-[0_0_100px_rgba(37,99,235,0.25)] animate-pop-in-modal">
+    <div className="animate-modal-overlay fixed inset-0 z-[600] flex items-center justify-center bg-[#02050f]/90 p-4 backdrop-blur-md sm:p-6">
+      <div className="animate-pop-in-modal relative flex w-full max-w-[900px] transform-gpu flex-col overflow-hidden rounded-[2rem] border border-[var(--systemhub-border)] bg-[var(--systemhub-base)] shadow-[0_0_70px_rgba(37,99,235,0.18)]">
         <button
           type="button"
           onClick={onClose}
@@ -122,5 +122,4 @@ export default function PromoPopup({
     </div>
   );
 }
-
 

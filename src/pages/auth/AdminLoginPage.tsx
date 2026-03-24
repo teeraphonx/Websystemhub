@@ -7,6 +7,7 @@ interface AdminLoginPageProps {
   password: string;
   showPassword: boolean;
   rememberMe: boolean;
+  isSubmitting: boolean;
   onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onTogglePassword: () => void;
@@ -23,11 +24,12 @@ export default function AdminLoginPage(props: AdminLoginPageProps) {
       submitLabel="เข้าสู่ระบบแอดมิน"
       submitIcon={ShieldCheck}
       accent="admin"
-      usernameLabel="ID แอดมิน"
-      usernamePlaceholder="ADMIN-01"
+      usernameLabel="ชื่อผู้ใช้แอดมิน"
+      usernamePlaceholder="กรอกชื่อผู้ใช้ หรืออีเมล"
       username={props.username}
       onUsernameChange={props.onUsernameChange}
       password={props.password}
+      passwordAutoComplete="current-password"
       onPasswordChange={props.onPasswordChange}
       showPassword={props.showPassword}
       onTogglePassword={props.onTogglePassword}
@@ -41,6 +43,7 @@ export default function AdminLoginPage(props: AdminLoginPageProps) {
       showForgotPasswordLink
       onForgotPassword={props.onForgotPassword}
       onSubmit={props.onSubmit}
+      isSubmitting={props.isSubmitting}
     />
   );
 }

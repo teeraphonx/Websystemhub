@@ -1,4 +1,4 @@
-﻿import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 export type AuthView = 'login' | 'register' | 'forgot-password' | 'admin';
@@ -100,6 +100,8 @@ export interface AppState {
   setSelectedCategoryId: Dispatch<SetStateAction<CategoryId | null>>;
   username: string;
   setUsername: Dispatch<SetStateAction<string>>;
+  email: string;
+  setEmail: Dispatch<SetStateAction<string>>;
   password: string;
   setPassword: Dispatch<SetStateAction<string>>;
   confirmPassword: string;

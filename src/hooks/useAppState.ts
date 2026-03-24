@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { initialAdminBookings } from '../data/adminBookings';
 import type { AppState } from '../types';
 
@@ -9,6 +9,7 @@ export const useAppState = (): AppState => {
   const [selectedCategoryId, setSelectedCategoryId] =
     useState<AppState['selectedCategoryId']>(null);
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -37,6 +38,8 @@ export const useAppState = (): AppState => {
     setSelectedCategoryId,
     username,
     setUsername,
+    email,
+    setEmail,
     password,
     setPassword,
     confirmPassword,

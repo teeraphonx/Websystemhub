@@ -1,4 +1,13 @@
 import { useEffect, useState, type FormEventHandler } from 'react';
+import {
+  createUserWithEmailAndPassword,
+  deleteUser,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  type User as FirebaseUser,
+} from 'firebase/auth';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import type { AppView, AuthView, CategoryId, UserTab } from './types';
 import { AUTH_TABS, USER_NAV_ITEMS } from './constants/views';
@@ -18,10 +27,28 @@ import UserProfilePage from './pages/user/UserProfilePage';
 import HistoryPage from './pages/user/HistoryPage';
 import ChangePasswordPage from './pages/user/ChangePasswordPage';
 import DashboardPage from './pages/admin/DashboardPage';
+import {
+  auth,
+  createUserProfile,
+  getFirebaseAuth,
+  getUserProfile,
+  isAdminEmail,
+  resolveEmailForAuth,
+  setFirebaseAuthPersistence,
+} from './lib/firebase';
 import { useAppHandlers } from './hooks/useAppHandlers';
 import { useAppState } from './hooks/useAppState';
-import { isPromoPopupSuppressed, suppressPromoPopupForOneHour } from './utils/promo';
-import { getAuthValidationResult } from './utils/validation';
+import { createSuccessModal } from './utils/modal';
+import {
+  isPromoPopupSuppressed,
+  suppressPromoPopupForOneHour,
+} from './utils/promo';
+import {
+  createAdminAccessDeniedModal,
+  getAuthSuccessMessage,
+  getAuthValidationResult,
+  getFirebaseAuthErrorModal,
+} from './utils/validation';
 
 type AuthRouteState = {
   kind: 'auth';
@@ -189,24 +216,42 @@ function App() {
   const handlers = useAppHandlers(state);
   const [showPromoPopup, setShowPromoPopup] = useState(false);
   const [dontShowPromo, setDontShowPromo] = useState(false);
+  const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+  const [postAuthRedirectPath, setPostAuthRedirectPath] = useState<string | null>(null);
   const {
     activeUserTab,
+    username,
+    email,
+    password,
+    confirmPassword,
+    rememberMe,
     selectedCategoryId,
     setActiveUserTab,
+    setActiveUsers,
+    setAdminDateFilter,
+    setConfirmPassword,
+    setEmail,
+    setHistoryDateFilter,
+    setModalState,
+    setPassword,
+    setRememberMe,
     setSelectedCategoryId,
+    setShowConfirmPassword,
+    setShowPassword,
+    setUsername,
+    setUserReservations,
     setView,
     view,
   } = state;
   const location = useLocation();
   const navigate = useNavigate();
   const currentRoute = resolveAppRoute(location.pathname);
-  const routeKind = currentRoute?.kind ?? null;
-  const routeView = currentRoute?.view ?? null;
-  const routeUserTab = currentRoute?.kind === 'user' ? currentRoute.userTab : null;
-  const routeCategoryId =
-    currentRoute?.kind === 'user' ? currentRoute.categoryId : null;
   const isUserHomeRoute =
     currentRoute?.kind === 'user' && currentRoute.userTab === 'home';
+  const isAdminUser = isAdminEmail(authUser?.email);
+  const authenticatedRedirectPath = isAdminUser ? '/dashboard' : '/home';
 
   useEffect(() => {
     if (!currentRoute) {
@@ -235,10 +280,6 @@ function App() {
   }, [
     activeUserTab,
     currentRoute,
-    routeCategoryId,
-    routeKind,
-    routeUserTab,
-    routeView,
     selectedCategoryId,
     setActiveUserTab,
     setSelectedCategoryId,
@@ -247,21 +288,95 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!isUserHomeRoute || isPromoPopupSuppressed()) {
+    let isMounted = true;
+
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      void (async () => {
+        setAuthUser(nextUser);
+        setActiveUsers(nextUser ? 1 : 0);
+        setPassword('');
+        setConfirmPassword('');
+        setShowPassword(false);
+        setShowConfirmPassword(false);
+
+        if (!nextUser) {
+          if (!isMounted) {
+            return;
+          }
+
+          setPostAuthRedirectPath(null);
+          setUsername('');
+          setEmail('');
+          setRememberMe(false);
+          setUserReservations(0);
+          setHistoryDateFilter('');
+          setAdminDateFilter('');
+          setSelectedCategoryId(null);
+          setActiveUserTab('home');
+          setIsAuthReady(true);
+          return;
+        }
+
+        setEmail(nextUser.email ?? '');
+
+        try {
+          const profile = await getUserProfile(nextUser.uid);
+
+          if (!isMounted) {
+            return;
+          }
+
+          setUsername(profile?.username ?? nextUser.email?.split('@')[0] ?? '');
+        } catch {
+          if (!isMounted) {
+            return;
+          }
+
+          setUsername(nextUser.email?.split('@')[0] ?? '');
+        }
+
+        if (isMounted) {
+          setIsAuthReady(true);
+        }
+      })();
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [
+    setActiveUserTab,
+    setActiveUsers,
+    setAdminDateFilter,
+    setConfirmPassword,
+    setEmail,
+    setHistoryDateFilter,
+    setPassword,
+    setRememberMe,
+    setSelectedCategoryId,
+    setShowConfirmPassword,
+    setShowPassword,
+    setUsername,
+    setUserReservations,
+  ]);
+
+  useEffect(() => {
+    if (!isAuthReady || !authUser || !isUserHomeRoute || isPromoPopupSuppressed()) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
       setDontShowPromo(false);
       setShowPromoPopup(true);
-    }, 400);
+    }, 120);
 
     return () => {
       window.clearTimeout(timeoutId);
       setShowPromoPopup(false);
       setDontShowPromo(false);
     };
-  }, [isUserHomeRoute]);
+  }, [authUser, isAuthReady, isUserHomeRoute]);
 
   const handleClosePromoPopup = () => {
     if (dontShowPromo) {
@@ -273,6 +388,11 @@ function App() {
   };
 
   const handleAuthRouteChange = (nextView: AuthView) => {
+    if (isAuthSubmitting) {
+      return;
+    }
+
+    setPostAuthRedirectPath(null);
     handlers.handleAuthViewChange(nextView);
     navigate(getPathForAuthView(nextView));
   };
@@ -287,37 +407,112 @@ function App() {
     navigate(getPathForUserTab('category_detail', categoryId));
   };
 
-  const handleAuthSubmit: FormEventHandler<HTMLFormElement> = (event) => {
-    if (currentRoute?.kind === 'auth') {
-      const validation = getAuthValidationResult({
-        view: currentRoute.view,
-        username: state.username,
-        password: state.password,
-        confirmPassword: state.confirmPassword,
-      });
+  const handleAuthSubmit: FormEventHandler<HTMLFormElement> = async (event) => {
+    event.preventDefault();
 
-      handlers.handleFormSubmit(event);
-
-      if (!validation.modal) {
-        const nextPath =
-          currentRoute.view === 'forgot-password'
-            ? getPathForAuthView('login')
-            : getPostAuthPath(currentRoute.view);
-
-        window.setTimeout(() => {
-          navigate(nextPath);
-        }, REDIRECT_DELAY_MS);
-      }
-
+    if (!currentRoute || currentRoute.kind !== 'auth' || isAuthSubmitting) {
       return;
     }
 
-    handlers.handleFormSubmit(event);
+    const validation = getAuthValidationResult({
+      view: currentRoute.view,
+      username,
+      email,
+      password,
+      confirmPassword,
+    });
+
+    if (validation.modal) {
+      setModalState(validation.modal);
+      return;
+    }
+
+    try {
+      setIsAuthSubmitting(true);
+      const trimmedUsername = username.trim();
+      const trimmedEmail = email.trim();
+
+      if (currentRoute.view === 'forgot-password') {
+        const resolvedEmail = await resolveEmailForAuth(trimmedUsername);
+        await sendPasswordResetEmail(getFirebaseAuth(), resolvedEmail);
+        const successCopy = getAuthSuccessMessage(currentRoute.view);
+        setModalState(createSuccessModal(successCopy.title, successCopy.desc));
+
+        window.setTimeout(() => {
+          handlers.closeModal();
+          handleAuthRouteChange('login');
+        }, REDIRECT_DELAY_MS);
+        return;
+      }
+
+      if (currentRoute.view === 'register') {
+        await setFirebaseAuthPersistence(true);
+        const userCredential = await createUserWithEmailAndPassword(
+          getFirebaseAuth(),
+          trimmedEmail,
+          password,
+        );
+
+        try {
+          await createUserProfile({
+            uid: userCredential.user.uid,
+            username: trimmedUsername,
+            email: trimmedEmail,
+          });
+          setUsername(trimmedUsername);
+          setEmail(trimmedEmail);
+        } catch (error) {
+          await deleteUser(userCredential.user).catch(async () => {
+            await firebaseSignOut(getFirebaseAuth()).catch(() => undefined);
+          });
+          throw error;
+        }
+      } else {
+        const resolvedEmail = await resolveEmailForAuth(trimmedUsername);
+
+        if (currentRoute.view === 'admin' && !isAdminEmail(resolvedEmail)) {
+          setModalState(createAdminAccessDeniedModal());
+          return;
+        }
+
+        await setFirebaseAuthPersistence(rememberMe);
+        await signInWithEmailAndPassword(
+          getFirebaseAuth(),
+          resolvedEmail,
+          password,
+        );
+      }
+
+      const successCopy = getAuthSuccessMessage(currentRoute.view);
+      const nextPath = getPostAuthPath(currentRoute.view);
+      setPostAuthRedirectPath(nextPath);
+      setModalState(createSuccessModal(successCopy.title, successCopy.desc));
+
+      window.setTimeout(() => {
+        handlers.closeModal();
+        setPostAuthRedirectPath(null);
+        navigate(nextPath);
+      }, REDIRECT_DELAY_MS);
+    } catch (error) {
+      setPostAuthRedirectPath(null);
+      setModalState(getFirebaseAuthErrorModal(error, currentRoute.view));
+    } finally {
+      setIsAuthSubmitting(false);
+    }
   };
 
-  const handleLogout = () => {
-    handlers.handleLogout();
-    navigate(DEFAULT_ROUTE);
+  const handleLogout = async () => {
+    try {
+      if (authUser) {
+        await firebaseSignOut(getFirebaseAuth());
+      }
+
+      handlers.handleLogout();
+      setPostAuthRedirectPath(null);
+      navigate(DEFAULT_ROUTE);
+    } catch (error) {
+      setModalState(getFirebaseAuthErrorModal(error, 'login'));
+    }
   };
 
   const handlePasswordChangeSuccess = () => {
@@ -336,17 +531,20 @@ function App() {
       case 'register':
         return (
           <RegisterPage
-            username={state.username}
-            password={state.password}
-            confirmPassword={state.confirmPassword}
+            username={username}
+            email={email}
+            password={password}
+            confirmPassword={confirmPassword}
             showPassword={state.showPassword}
             showConfirmPassword={state.showConfirmPassword}
-            onUsernameChange={state.setUsername}
-            onPasswordChange={state.setPassword}
-            onConfirmPasswordChange={state.setConfirmPassword}
-            onTogglePassword={() => state.setShowPassword((value) => !value)}
+            isSubmitting={isAuthSubmitting}
+            onUsernameChange={setUsername}
+            onEmailChange={setEmail}
+            onPasswordChange={setPassword}
+            onConfirmPasswordChange={setConfirmPassword}
+            onTogglePassword={() => setShowPassword((value) => !value)}
             onToggleConfirmPassword={() =>
-              state.setShowConfirmPassword((value) => !value)
+              setShowConfirmPassword((value) => !value)
             }
             onSwitchToLogin={() => handleAuthRouteChange('login')}
             onSubmit={handleAuthSubmit}
@@ -355,8 +553,9 @@ function App() {
       case 'forgot-password':
         return (
           <ForgotPasswordPage
-            username={state.username}
-            onUsernameChange={state.setUsername}
+            username={username}
+            isSubmitting={isAuthSubmitting}
+            onUsernameChange={setUsername}
             onSubmit={handleAuthSubmit}
             onBack={() => handleAuthRouteChange('login')}
           />
@@ -364,14 +563,15 @@ function App() {
       case 'admin':
         return (
           <AdminLoginPage
-            username={state.username}
-            password={state.password}
+            username={username}
+            password={password}
             showPassword={state.showPassword}
-            rememberMe={state.rememberMe}
-            onUsernameChange={state.setUsername}
-            onPasswordChange={state.setPassword}
-            onTogglePassword={() => state.setShowPassword((value) => !value)}
-            onToggleRememberMe={() => state.setRememberMe((value) => !value)}
+            rememberMe={rememberMe}
+            isSubmitting={isAuthSubmitting}
+            onUsernameChange={setUsername}
+            onPasswordChange={setPassword}
+            onTogglePassword={() => setShowPassword((value) => !value)}
+            onToggleRememberMe={() => setRememberMe((value) => !value)}
             onForgotPassword={() => handleAuthRouteChange('forgot-password')}
             onSubmit={handleAuthSubmit}
           />
@@ -379,14 +579,15 @@ function App() {
       default:
         return (
           <LoginPage
-            username={state.username}
-            password={state.password}
+            username={username}
+            password={password}
             showPassword={state.showPassword}
-            rememberMe={state.rememberMe}
-            onUsernameChange={state.setUsername}
-            onPasswordChange={state.setPassword}
-            onTogglePassword={() => state.setShowPassword((value) => !value)}
-            onToggleRememberMe={() => state.setRememberMe((value) => !value)}
+            rememberMe={rememberMe}
+            isSubmitting={isAuthSubmitting}
+            onUsernameChange={setUsername}
+            onPasswordChange={setPassword}
+            onTogglePassword={() => setShowPassword((value) => !value)}
+            onToggleRememberMe={() => setRememberMe((value) => !value)}
             onForgotPassword={() => handleAuthRouteChange('forgot-password')}
             onSwitchToRegister={() => handleAuthRouteChange('register')}
             onSubmit={handleAuthSubmit}
@@ -427,7 +628,8 @@ function App() {
       case 'user':
         return (
           <UserProfilePage
-            username={state.username}
+            username={username}
+            email={authUser?.email ?? email}
             userReservations={state.userReservations}
             onOpenChangePassword={() => handleUserRouteChange('change_password')}
             onOpenHistory={() => handleUserRouteChange('history')}
@@ -465,6 +667,39 @@ function App() {
 
   if (!currentRoute) {
     return <Navigate to={DEFAULT_ROUTE} replace />;
+  }
+
+  if (!isAuthReady) {
+    return (
+      <div className="systemhub-auth-stage relative flex min-h-screen items-center justify-center overflow-hidden px-4 font-sans text-gray-200">
+        <div className="systemhub-auth-ambient pointer-events-none absolute inset-0 z-0"></div>
+        <div className="systemhub-auth-side-fade pointer-events-none absolute inset-0 z-0"></div>
+        <div className="systemhub-auth-vignette pointer-events-none absolute inset-0 z-0"></div>
+        <div className="systemhub-auth-panel relative z-10 w-full max-w-[440px] rounded-3xl p-10 text-center backdrop-blur-2xl">
+          <p className="text-sm font-bold uppercase tracking-[0.3em] text-[var(--systemhub-accent)]">
+            SystemHub
+          </p>
+          <h1 className="mt-4 text-2xl font-black text-white">
+            กำลังตรวจสอบสถานะการเข้าสู่ระบบ
+          </h1>
+          <p className="mt-3 text-sm text-gray-400">
+            โปรดรอสักครู่ ระบบกำลังเชื่อมต่อ Firebase Authentication
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentRoute.kind === 'dashboard' && !isAdminUser) {
+    return <Navigate to={authUser ? '/home' : '/admin'} replace />;
+  }
+
+  if (currentRoute.kind === 'user' && !authUser) {
+    return <Navigate to={DEFAULT_ROUTE} replace />;
+  }
+
+  if (currentRoute.kind === 'auth' && authUser && !postAuthRedirectPath) {
+    return <Navigate to={authenticatedRedirectPath} replace />;
   }
 
   return (
@@ -514,8 +749,9 @@ function App() {
                   <button
                     key={tab.id}
                     type="button"
+                    disabled={isAuthSubmitting}
                     onClick={() => handleAuthRouteChange(tab.id)}
-                    className={`flex items-center space-x-3 rounded-full px-8 py-3 text-[13px] font-bold transition-all duration-300 ${isActive ? activeClass : 'bg-transparent text-[var(--systemhub-text-subtle)] hover:text-white'}`}
+                    className={`flex items-center space-x-3 rounded-full px-8 py-3 text-[13px] font-bold transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-60 ${isActive ? activeClass : 'bg-transparent text-[var(--systemhub-text-subtle)] hover:text-white'}`}
                   >
                     <Icon size={16} />
                     <span>{tab.label}</span>
@@ -530,7 +766,7 @@ function App() {
 
       <Modal state={state.modalState} onClose={handlers.closeModal} />
       <PromoPopup
-        isOpen={showPromoPopup && state.view === 'user-home'}
+        isOpen={showPromoPopup && isUserHomeRoute}
         dontShowForHour={dontShowPromo}
         onToggleDontShow={() => setDontShowPromo((value) => !value)}
         onClose={handleClosePromoPopup}
@@ -540,3 +776,5 @@ function App() {
 }
 
 export default App;
+
+

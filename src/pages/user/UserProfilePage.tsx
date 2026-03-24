@@ -2,6 +2,7 @@ import UserProfileCard from '../../components/user/UserProfileCard';
 
 interface UserProfilePageProps {
   username: string;
+  email: string;
   userReservations: number;
   onOpenChangePassword: () => void;
   onOpenHistory: () => void;
@@ -10,9 +11,10 @@ interface UserProfilePageProps {
 
 export default function UserProfilePage(props: UserProfilePageProps) {
   return (
-    <div className="flex justify-center items-start pt-6 animate-fade-up">
+    <div className="flex items-start justify-center pt-6 animate-fade-up">
       <UserProfileCard
         username={props.username}
+        email={props.email}
         userReservations={props.userReservations}
         onOpenChangePassword={props.onOpenChangePassword}
         onOpenHistory={props.onOpenHistory}
