@@ -1,5 +1,5 @@
 import { ChevronRight, Briefcase, CheckCircle, Headset, Monitor, Package, ShoppingBag, Truck, Users, Zap } from 'lucide-react';
-import divisionLogo from '../../assets/logo-division-ขาว1-nobg.png';
+import divisionLogo from '../../assets/CCID_1.png';
 import { categoryItems } from '../../data/categoryItems';
 
 interface UserHomePageProps {
@@ -99,7 +99,7 @@ export default function UserHomePage({ activeUsers, totalReservations, onStartBo
             <img
               src={divisionLogo}
               alt="Cyber Crime Investigation Bureau badge"
-              className="h-full w-full object-contain drop-shadow-md"
+              className="h-full w-full scale-[1.23] object-contain drop-shadow-md"
             />
           </div>
         </div>
@@ -134,3 +134,8 @@ export default function UserHomePage({ activeUsers, totalReservations, onStartBo
     </div>
   );
 }
+
+
+
+
+

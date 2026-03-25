@@ -1,4 +1,4 @@
-import divisionLogo from '../../assets/logo-division-login-cropped.png';
+import divisionLogo from '../../assets/CCID_1.png';
 
 export default function AvatarCircle() {
   return (
@@ -8,7 +8,7 @@ export default function AvatarCircle() {
         <img
           src={divisionLogo}
           alt="Cyber Crime Investigation Bureau badge"
-          className="h-full w-full object-contain object-center drop-shadow-[0_4px_10px_rgba(0,0,0,0.35)]"
+          className="h-full w-full translate-y-[9%] scale-[1.23] object-contain object-center drop-shadow-[0_4px_10px_rgba(0,0,0,0.35)]"
         />
       </div>
     </div>
