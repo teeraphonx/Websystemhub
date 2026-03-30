@@ -1,4 +1,4 @@
-﻿import type { AdminBooking } from '../types';
+import type { AdminBooking } from '../types';
 
 export const initialAdminBookings: AdminBooking[] = [
   {
@@ -9,6 +9,8 @@ export const initialAdminBookings: AdminBooking[] = [
     itemName: 'MacBook Pro M3',
     time: '10:03 น.',
     date: '2026-03-13',
+    requestedQuantity: 2,
+    availableQuantity: 2,
     status: 'รออนุมัติ',
   },
   {
@@ -19,6 +21,8 @@ export const initialAdminBookings: AdminBooking[] = [
     itemName: 'Toyota Hilux Revo',
     time: '10:18 น.',
     date: '2026-03-13',
+    requestedQuantity: 1,
+    availableQuantity: 1,
     status: 'รออนุมัติ',
   },
   {
@@ -29,6 +33,8 @@ export const initialAdminBookings: AdminBooking[] = [
     itemName: 'Sony 4K Projector',
     time: '10:40 น.',
     date: '2026-03-10',
+    requestedQuantity: 1,
+    availableQuantity: 1,
     status: 'อนุมัติแล้ว',
   },
   {
@@ -39,6 +45,8 @@ export const initialAdminBookings: AdminBooking[] = [
     itemName: 'Ergonomic Chair',
     time: '10:19 น.',
     date: '2026-03-15',
+    requestedQuantity: 4,
+    availableQuantity: 3,
     status: 'รออนุมัติ',
   },
   {
@@ -49,6 +57,8 @@ export const initialAdminBookings: AdminBooking[] = [
     itemName: 'Server Node V3',
     time: '10:00 น.',
     date: '2026-03-13',
+    requestedQuantity: 1,
+    availableQuantity: 1,
     status: 'อนุมัติแล้ว',
   },
   {
@@ -59,6 +69,8 @@ export const initialAdminBookings: AdminBooking[] = [
     itemName: 'Dell UltraSharp 27"',
     time: '10:40 น.',
     date: '2026-03-10',
+    requestedQuantity: 2,
+    availableQuantity: 2,
     status: 'รออนุมัติ',
   },
 ];

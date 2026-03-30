@@ -1,6 +1,14 @@
-import { useState } from 'react';
-import { initialAdminBookings } from '../data/adminBookings';
-import type { AppState } from '../types';
+import { useEffect, useState, type SetStateAction } from 'react';
+import { appDataStore } from '../lib/appDataStore';
+import type { AppDataSnapshot, AppState } from '../types';
+
+const resolveSliceUpdate = <T,>(
+  current: T,
+  nextValue: SetStateAction<T>,
+): T =>
+  typeof nextValue === 'function'
+    ? (nextValue as (value: T) => T)(current)
+    : nextValue;
 
 export const useAppState = (): AppState => {
   const [view, setView] = useState<AppState['view']>('login');
@@ -15,6 +23,10 @@ export const useAppState = (): AppState => {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminRememberMe, setAdminRememberMe] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [modalState, setModalState] = useState({
     isOpen: false,
     type: 'success',
@@ -27,7 +39,71 @@ export const useAppState = (): AppState => {
   const [historyDateFilter, setHistoryDateFilter] = useState('');
   const [adminDateFilter, setAdminDateFilter] = useState('');
   const [adminCalendarView, setAdminCalendarView] = useState(new Date());
-  const [adminBookings, setAdminBookings] = useState(initialAdminBookings);
+  const [appData, setAppData] = useState<AppDataSnapshot>(() =>
+    appDataStore.getBootstrapSnapshot(),
+  );
+  const [isAppDataReady, setIsAppDataReady] = useState(
+    !appDataStore.requiresHydration,
+  );
+
+  useEffect(() => {
+    if (!appDataStore.requiresHydration) {
+      return () => undefined;
+    }
+
+    let isMounted = true;
+
+    void appDataStore
+      .loadSnapshot()
+      .then((snapshot) => {
+        if (isMounted) {
+          setAppData(snapshot);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsAppDataReady(true);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAppDataReady) {
+      return;
+    }
+
+    void appDataStore.saveSnapshot(appData);
+  }, [appData, isAppDataReady]);
+
+  const setAdminBookings: AppState['setAdminBookings'] = (nextValue) => {
+    setAppData((current) => ({
+      ...current,
+      adminBookings: resolveSliceUpdate(current.adminBookings, nextValue),
+    }));
+  };
+
+  const setAdminNotifications: AppState['setAdminNotifications'] = (
+    nextValue,
+  ) => {
+    setAppData((current) => ({
+      ...current,
+      adminNotifications: resolveSliceUpdate(
+        current.adminNotifications,
+        nextValue,
+      ),
+    }));
+  };
+
+  const setCategoryItems: AppState['setCategoryItems'] = (nextValue) => {
+    setAppData((current) => ({
+      ...current,
+      categoryItems: resolveSliceUpdate(current.categoryItems, nextValue),
+    }));
+  };
 
   return {
     view,
@@ -50,6 +126,14 @@ export const useAppState = (): AppState => {
     setShowPassword,
     showConfirmPassword,
     setShowConfirmPassword,
+    adminUsername,
+    setAdminUsername,
+    adminPassword,
+    setAdminPassword,
+    adminRememberMe,
+    setAdminRememberMe,
+    showAdminPassword,
+    setShowAdminPassword,
     modalState,
     setModalState,
     activeUsers,
@@ -64,7 +148,14 @@ export const useAppState = (): AppState => {
     setAdminDateFilter,
     adminCalendarView,
     setAdminCalendarView,
-    adminBookings,
+    appData,
+    setAppData,
+    isAppDataReady,
+    adminBookings: appData.adminBookings,
     setAdminBookings,
+    adminNotifications: appData.adminNotifications,
+    setAdminNotifications,
+    categoryItems: appData.categoryItems,
+    setCategoryItems,
   };
 };

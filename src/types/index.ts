@@ -82,7 +82,24 @@ export interface AdminBooking {
   itemName: string;
   time: string;
   date: string;
+  requestedQuantity: number;
+  availableQuantity: number;
   status: AdminBookingStatus;
+}
+
+export interface AdminNotification {
+  id: string;
+  bookingId: string;
+  title: string;
+  desc: string;
+  time: string;
+  isRead: boolean;
+}
+
+export interface AppDataSnapshot {
+  adminBookings: AdminBooking[];
+  adminNotifications: AdminNotification[];
+  categoryItems: CategoryItemsMap;
 }
 
 export interface CalendarDay {
@@ -112,6 +129,14 @@ export interface AppState {
   setShowPassword: Dispatch<SetStateAction<boolean>>;
   showConfirmPassword: boolean;
   setShowConfirmPassword: Dispatch<SetStateAction<boolean>>;
+  adminUsername: string;
+  setAdminUsername: Dispatch<SetStateAction<string>>;
+  adminPassword: string;
+  setAdminPassword: Dispatch<SetStateAction<string>>;
+  adminRememberMe: boolean;
+  setAdminRememberMe: Dispatch<SetStateAction<boolean>>;
+  showAdminPassword: boolean;
+  setShowAdminPassword: Dispatch<SetStateAction<boolean>>;
   modalState: ModalState;
   setModalState: Dispatch<SetStateAction<ModalState>>;
   activeUsers: number;
@@ -126,6 +151,13 @@ export interface AppState {
   setAdminDateFilter: Dispatch<SetStateAction<string>>;
   adminCalendarView: Date;
   setAdminCalendarView: Dispatch<SetStateAction<Date>>;
+  appData: AppDataSnapshot;
+  setAppData: Dispatch<SetStateAction<AppDataSnapshot>>;
+  isAppDataReady: boolean;
   adminBookings: AdminBooking[];
   setAdminBookings: Dispatch<SetStateAction<AdminBooking[]>>;
+  adminNotifications: AdminNotification[];
+  setAdminNotifications: Dispatch<SetStateAction<AdminNotification[]>>;
+  categoryItems: CategoryItemsMap;
+  setCategoryItems: Dispatch<SetStateAction<CategoryItemsMap>>;
 }

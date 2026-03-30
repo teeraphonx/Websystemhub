@@ -1,17 +1,37 @@
-import { ChevronRight, Briefcase, CheckCircle, Headset, Monitor, Package, ShoppingBag, Truck, Users, Zap } from 'lucide-react';
+import {
+  Briefcase,
+  CheckCircle,
+  ChevronRight,
+  Headset,
+  Monitor,
+  Package,
+  ShoppingBag,
+  Truck,
+  Users,
+  Zap,
+} from 'lucide-react';
 import divisionLogo from '../../assets/CCID_1.png';
-import { categoryItems } from '../../data/categoryItems';
+import type { CategoryItemsMap } from '../../types';
 
 interface UserHomePageProps {
   activeUsers: number;
   totalReservations: number;
+  categoryItems: CategoryItemsMap;
   onStartBorrow: () => void;
   onContact: () => void;
 }
 
-export default function UserHomePage({ activeUsers, totalReservations, onStartBorrow, onContact }: UserHomePageProps) {
+export default function UserHomePage({
+  activeUsers,
+  totalReservations,
+  categoryItems,
+  onStartBorrow,
+  onContact,
+}: UserHomePageProps) {
   const totalItemsCount = Object.values(categoryItems).flat().length;
-  const totalStockCount = Object.values(categoryItems).flat().reduce((acc, curr) => acc + curr.stock, 0);
+  const totalStockCount = Object.values(categoryItems)
+    .flat()
+    .reduce((acc, curr) => acc + curr.stock, 0);
 
   return (
     <div className="mt-4 flex animate-fade-up flex-col items-center justify-between gap-12 lg:mt-16 lg:flex-row">
@@ -20,8 +40,10 @@ export default function UserHomePage({ activeUsers, totalReservations, onStartBo
           <Zap size={14} className="text-yellow-400" /> ระบบจองครุภัณฑ์และตรวจสอบ 24/7
         </div>
         <h1 className="text-[44px] font-black uppercase leading-[1.1] tracking-tighter text-white md:text-[60px]">
-          SYSTEMHUB<br />
-          <span className="text-[var(--systemhub-accent)]">ครบวงจร</span><br />
+          SYSTEMHUB
+          <br />
+          <span className="text-[var(--systemhub-accent)]">ครบวงจร</span>
+          <br />
           ทุกการจอง
         </h1>
         <p className="max-w-[500px] text-[14px] font-medium leading-relaxed text-gray-400 md:text-[15px]">
@@ -134,8 +156,3 @@ export default function UserHomePage({ activeUsers, totalReservations, onStartBo
     </div>
   );
 }
-
-
-
-
-

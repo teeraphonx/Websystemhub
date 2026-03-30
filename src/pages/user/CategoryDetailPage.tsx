@@ -1,16 +1,21 @@
 import { ChevronLeft, Tag } from 'lucide-react';
 import EquipmentCard from '../../components/borrow/EquipmentCard';
 import { CATEGORY_SUMMARIES } from '../../constants/views';
-import { categoryItems } from '../../data/categoryItems';
 import type { CategoryId, EquipmentItem } from '../../types';
 
 interface CategoryDetailPageProps {
   categoryId: CategoryId;
+  items: EquipmentItem[];
   onBack: () => void;
   onReserve: (item: EquipmentItem) => void;
 }
 
-export default function CategoryDetailPage({ categoryId, onBack, onReserve }: CategoryDetailPageProps) {
+export default function CategoryDetailPage({
+  categoryId,
+  items,
+  onBack,
+  onReserve,
+}: CategoryDetailPageProps) {
   const category = CATEGORY_SUMMARIES.find((item) => item.id === categoryId);
 
   if (!category) {
@@ -25,7 +30,7 @@ export default function CategoryDetailPage({ categoryId, onBack, onReserve }: Ca
             <Tag size={16} className="text-[var(--systemhub-accent)]" />
             <span className="text-[12px] font-black uppercase tracking-[0.2em] text-white">CATEGORY {category.title}</span>
           </div>
-          <p className="text-[13px] text-[var(--systemhub-text-muted)]">รายการพร้อมจองทั้งหมด {categoryItems[categoryId].length} รายการ</p>
+          <p className="text-[13px] text-[var(--systemhub-text-muted)]">รายการพร้อมจองทั้งหมด {items.length} รายการ</p>
         </div>
 
         <button
@@ -37,11 +42,10 @@ export default function CategoryDetailPage({ categoryId, onBack, onReserve }: Ca
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {categoryItems[categoryId].map((item) => (
+        {items.map((item) => (
           <EquipmentCard key={item.id} item={item} onReserve={onReserve} />
         ))}
       </div>
     </div>
   );
 }
-

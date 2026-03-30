@@ -5,6 +5,7 @@ import { getCalendarDays, getThaiMonthYearLabel } from '../../utils/date';
 interface AdminCalendarProps {
   currentMonth: Date;
   selectedDate: string;
+  bookingDateCounts: Record<string, number>;
   onPrevMonth: () => void;
   onNextMonth: () => void;
   onSelectDate: (dateString: string, type: CalendarDayType) => void;
@@ -13,6 +14,7 @@ interface AdminCalendarProps {
 export default function AdminCalendar({
   currentMonth,
   selectedDate,
+  bookingDateCounts,
   onPrevMonth,
   onNextMonth,
   onSelectDate,
@@ -35,24 +37,44 @@ export default function AdminCalendar({
         {days.map((day) => {
           const isSelected = day.dateString === selectedDate;
           const isCurrentMonth = day.type === 'curr';
+          const bookingCount = bookingDateCounts[day.dateString] ?? 0;
+          const hasBookings = bookingCount > 0;
 
           const textClass = isSelected
             ? 'text-white'
-            : isCurrentMonth
-              ? 'text-gray-300 hover:text-white'
+            : hasBookings
+              ? isCurrentMonth
+                ? 'text-white hover:text-white'
+                : 'text-[var(--systemhub-accent)] hover:text-white'
+              : isCurrentMonth
+                ? 'text-gray-300 hover:text-white'
+                : '';
+
+          const emphasisClass = isSelected
+            ? ''
+            : hasBookings
+              ? 'border border-[rgba(96,165,250,0.38)] bg-[rgba(37,99,235,0.14)] shadow-[0_0_18px_rgba(37,99,235,0.14)]'
               : '';
 
-          const style = !isSelected && !isCurrentMonth ? { color: 'var(--systemhub-border)' } : undefined;
+          const style = !isSelected && !isCurrentMonth && !hasBookings
+            ? { color: 'var(--systemhub-border)' }
+            : undefined;
 
           return (
-            <div key={`${day.dateString}-${day.day}`} className="flex h-8 items-center justify-center">
+            <div key={`${day.dateString}-${day.day}`} className="flex h-10 items-center justify-center">
               <button
                 type="button"
                 onClick={() => onSelectDate(day.dateString, day.type)}
-                className={`systemhub-admin-calendar-button ${isSelected ? 'is-selected' : ''} ${textClass}`}
+                title={hasBookings ? `มีรายการจอง ${bookingCount} รายการ` : day.dateString}
+                className={`systemhub-admin-calendar-button relative ${isSelected ? 'is-selected' : ''} ${textClass} ${emphasisClass}`}
                 style={style}
               >
-                {day.day}
+                <span>{day.day}</span>
+                {hasBookings && !isSelected && (
+                  <span className="absolute -bottom-1.5 left-1/2 flex h-4 min-w-4 -translate-x-1/2 items-center justify-center rounded-full border border-[rgba(96,165,250,0.3)] bg-[rgba(10,15,29,0.96)] px-1 text-[9px] font-black text-[var(--systemhub-accent)] shadow-[0_0_10px_rgba(37,99,235,0.2)]">
+                    {bookingCount > 9 ? '9+' : bookingCount}
+                  </span>
+                )}
               </button>
             </div>
           );

@@ -1,4 +1,4 @@
-import { getApp, getApps, initializeApp } from 'firebase/app';
+﻿import { getApps, initializeApp } from 'firebase/app';
 import {
   browserLocalPersistence,
   browserSessionPersistence,
@@ -30,12 +30,8 @@ const USERNAME_NOT_FOUND_MESSAGE = 'ไม่พบชื่อผู้ใช�
 const PROFILES_COLLECTION = 'profiles';
 const USERNAMES_COLLECTION = 'usernames';
 
-const adminEmails = (import.meta.env.VITE_FIREBASE_ADMIN_EMAILS ?? '')
-  .split(',')
-  .map((value) => value.trim().toLowerCase())
-  .filter(Boolean);
-
-const firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const defaultFirebaseApp = getApps().find((app) => app.name === '[DEFAULT]');
+const firebaseApp = defaultFirebaseApp ?? initializeApp(firebaseConfig);
 
 export const auth = getAuth(firebaseApp);
 export const db = getFirestore(firebaseApp);
@@ -125,5 +121,3 @@ export const getUserProfile = async (uid: string) => {
   return profileSnapshot.data() as UserProfileRecord;
 };
 
-export const isAdminEmail = (email: string | null | undefined) =>
-  Boolean(email && adminEmails.includes(email.trim().toLowerCase()));

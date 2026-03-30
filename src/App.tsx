@@ -28,11 +28,15 @@ import HistoryPage from './pages/user/HistoryPage';
 import ChangePasswordPage from './pages/user/ChangePasswordPage';
 import DashboardPage from './pages/admin/DashboardPage';
 import {
+  getAdminAuth,
+  isAdminFirebaseConfigured,
+  setAdminFirebaseAuthPersistence,
+} from './lib/adminFirebase';
+import {
   auth,
   createUserProfile,
   getFirebaseAuth,
   getUserProfile,
-  isAdminEmail,
   resolveEmailForAuth,
   setFirebaseAuthPersistence,
 } from './lib/firebase';
@@ -44,7 +48,7 @@ import {
   suppressPromoPopupForOneHour,
 } from './utils/promo';
 import {
-  createAdminAccessDeniedModal,
+  createAdminFirebaseNotConfiguredModal,
   getAuthSuccessMessage,
   getAuthValidationResult,
   getFirebaseAuthErrorModal,
@@ -70,6 +74,9 @@ type DashboardRouteState = {
 type AppRouteState = AuthRouteState | UserRouteState | DashboardRouteState;
 
 const DEFAULT_ROUTE = '/login';
+const ADMIN_ROUTE = '/admin';
+const DASHBOARD_ROUTE = '/dashboard';
+const USER_HOME_ROUTE = '/home';
 const REDIRECT_DELAY_MS = 1400;
 const CATEGORY_IDS: CategoryId[] = ['it', 'av', 'furniture', 'inspection'];
 
@@ -88,7 +95,7 @@ const getPathForAuthView = (view: AuthView) => {
     case 'forgot-password':
       return '/forgot-password';
     case 'admin':
-      return '/admin';
+      return ADMIN_ROUTE;
     default:
       return DEFAULT_ROUTE;
   }
@@ -114,12 +121,12 @@ const getPathForUserTab = (
     case 'change_password':
       return '/profile/change-password';
     default:
-      return '/home';
+      return USER_HOME_ROUTE;
   }
 };
 
 const getPostAuthPath = (view: AuthView) =>
-  view === 'admin' ? '/dashboard' : '/home';
+  view === 'admin' ? DASHBOARD_ROUTE : USER_HOME_ROUTE;
 
 const resolveAppRoute = (pathname: string): AppRouteState | null => {
   const normalizedPathname = normalizePathname(pathname);
@@ -217,7 +224,9 @@ function App() {
   const [showPromoPopup, setShowPromoPopup] = useState(false);
   const [dontShowPromo, setDontShowPromo] = useState(false);
   const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
+  const [adminUser, setAdminUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isAdminAuthReady, setIsAdminAuthReady] = useState(false);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [postAuthRedirectPath, setPostAuthRedirectPath] = useState<string | null>(null);
   const {
@@ -227,10 +236,16 @@ function App() {
     password,
     confirmPassword,
     rememberMe,
+    adminUsername,
+    adminPassword,
+    adminRememberMe,
     selectedCategoryId,
     setActiveUserTab,
     setActiveUsers,
     setAdminDateFilter,
+    setAdminPassword,
+    setAdminRememberMe,
+    setAdminUsername,
     setConfirmPassword,
     setEmail,
     setHistoryDateFilter,
@@ -238,6 +253,7 @@ function App() {
     setPassword,
     setRememberMe,
     setSelectedCategoryId,
+    setShowAdminPassword,
     setShowConfirmPassword,
     setShowPassword,
     setUsername,
@@ -250,8 +266,6 @@ function App() {
   const currentRoute = resolveAppRoute(location.pathname);
   const isUserHomeRoute =
     currentRoute?.kind === 'user' && currentRoute.userTab === 'home';
-  const isAdminUser = isAdminEmail(authUser?.email);
-  const authenticatedRedirectPath = isAdminUser ? '/dashboard' : '/home';
 
   useEffect(() => {
     if (!currentRoute) {
@@ -362,6 +376,38 @@ function App() {
   ]);
 
   useEffect(() => {
+    let isMounted = true;
+
+    if (!isAdminFirebaseConfigured()) {
+      setAdminUser(null);
+      setIsAdminAuthReady(true);
+      return () => undefined;
+    }
+
+    const unsubscribe = onAuthStateChanged(getAdminAuth(), (nextUser) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setAdminUser(nextUser);
+      setIsAdminAuthReady(true);
+
+      if (!nextUser) {
+        setAdminPassword('');
+        setShowAdminPassword(false);
+        return;
+      }
+
+      setAdminUsername(nextUser.email ?? '');
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [setAdminPassword, setAdminUsername, setShowAdminPassword]);
+
+  useEffect(() => {
     if (!isAuthReady || !authUser || !isUserHomeRoute || isPromoPopupSuppressed()) {
       return;
     }
@@ -411,6 +457,55 @@ function App() {
     event.preventDefault();
 
     if (!currentRoute || currentRoute.kind !== 'auth' || isAuthSubmitting) {
+      return;
+    }
+
+    if (currentRoute.view === 'admin') {
+      const adminValidation = getAuthValidationResult({
+        view: 'admin',
+        username: adminUsername,
+        email: '',
+        password: adminPassword,
+        confirmPassword: '',
+      });
+
+      if (adminValidation.modal) {
+        setModalState(adminValidation.modal);
+        return;
+      }
+
+      try {
+        setIsAuthSubmitting(true);
+
+        if (!isAdminFirebaseConfigured()) {
+          setModalState(createAdminFirebaseNotConfiguredModal());
+          return;
+        }
+
+        await setAdminFirebaseAuthPersistence(adminRememberMe);
+        await signInWithEmailAndPassword(
+          getAdminAuth(),
+          adminUsername.trim(),
+          adminPassword,
+        );
+
+        const successCopy = getAuthSuccessMessage('admin');
+        setPostAuthRedirectPath(DASHBOARD_ROUTE);
+        setModalState(createSuccessModal(successCopy.title, successCopy.desc));
+
+        window.setTimeout(() => {
+          handlers.closeModal();
+          setPostAuthRedirectPath(null);
+          navigate(DASHBOARD_ROUTE);
+        }, REDIRECT_DELAY_MS);
+      } catch (error) {
+        console.error('Admin login failed', error);
+        setPostAuthRedirectPath(null);
+        setModalState(getFirebaseAuthErrorModal(error, 'admin'));
+      } finally {
+        setIsAuthSubmitting(false);
+      }
+
       return;
     }
 
@@ -469,12 +564,6 @@ function App() {
         }
       } else {
         const resolvedEmail = await resolveEmailForAuth(trimmedUsername);
-
-        if (currentRoute.view === 'admin' && !isAdminEmail(resolvedEmail)) {
-          setModalState(createAdminAccessDeniedModal());
-          return;
-        }
-
         await setFirebaseAuthPersistence(rememberMe);
         await signInWithEmailAndPassword(
           getFirebaseAuth(),
@@ -501,7 +590,7 @@ function App() {
     }
   };
 
-  const handleLogout = async () => {
+  const handleUserLogout = async () => {
     try {
       if (authUser) {
         await firebaseSignOut(getFirebaseAuth());
@@ -512,6 +601,23 @@ function App() {
       navigate(DEFAULT_ROUTE);
     } catch (error) {
       setModalState(getFirebaseAuthErrorModal(error, 'login'));
+    }
+  };
+
+  const handleAdminLogout = async () => {
+    try {
+      if (adminUser) {
+        await firebaseSignOut(getAdminAuth());
+      }
+
+      setPostAuthRedirectPath(null);
+      setAdminUsername('');
+      setAdminPassword('');
+      setAdminRememberMe(false);
+      setShowAdminPassword(false);
+      navigate(ADMIN_ROUTE);
+    } catch (error) {
+      setModalState(getFirebaseAuthErrorModal(error, 'admin'));
     }
   };
 
@@ -563,16 +669,15 @@ function App() {
       case 'admin':
         return (
           <AdminLoginPage
-            username={username}
-            password={password}
-            showPassword={state.showPassword}
-            rememberMe={rememberMe}
+            username={adminUsername}
+            password={adminPassword}
+            showPassword={state.showAdminPassword}
+            rememberMe={adminRememberMe}
             isSubmitting={isAuthSubmitting}
-            onUsernameChange={setUsername}
-            onPasswordChange={setPassword}
-            onTogglePassword={() => setShowPassword((value) => !value)}
-            onToggleRememberMe={() => setRememberMe((value) => !value)}
-            onForgotPassword={() => handleAuthRouteChange('forgot-password')}
+            onUsernameChange={setAdminUsername}
+            onPasswordChange={setAdminPassword}
+            onTogglePassword={() => setShowAdminPassword((value) => !value)}
+            onToggleRememberMe={() => setAdminRememberMe((value) => !value)}
             onSubmit={handleAuthSubmit}
           />
         );
@@ -608,6 +713,7 @@ function App() {
         return currentRoute.categoryId ? (
           <CategoryDetailPage
             categoryId={currentRoute.categoryId}
+            items={state.categoryItems[currentRoute.categoryId]}
             onBack={() => handleUserRouteChange('borrow')}
             onReserve={handlers.handleReserveItem}
           />
@@ -633,7 +739,7 @@ function App() {
             userReservations={state.userReservations}
             onOpenChangePassword={() => handleUserRouteChange('change_password')}
             onOpenHistory={() => handleUserRouteChange('history')}
-            onLogout={handleLogout}
+            onLogout={handleUserLogout}
           />
         );
       case 'history':
@@ -658,6 +764,7 @@ function App() {
           <UserHomePage
             activeUsers={state.activeUsers}
             totalReservations={state.totalReservations}
+            categoryItems={state.categoryItems}
             onStartBorrow={() => handleUserRouteChange('borrow')}
             onContact={() => handleUserRouteChange('contact')}
           />
@@ -669,7 +776,15 @@ function App() {
     return <Navigate to={DEFAULT_ROUTE} replace />;
   }
 
-  if (!isAuthReady) {
+  const shouldShowFirebaseBootstrap =
+    !state.isAppDataReady ||
+    (!isAuthReady && currentRoute.kind === 'user') ||
+    (!isAuthReady && currentRoute.kind === 'auth' && currentRoute.view !== 'admin') ||
+    (!isAdminAuthReady &&
+      (currentRoute.kind === 'dashboard' ||
+        (currentRoute.kind === 'auth' && currentRoute.view === 'admin')));
+
+  if (shouldShowFirebaseBootstrap) {
     return (
       <div className="systemhub-auth-stage relative flex min-h-screen items-center justify-center overflow-hidden px-4 font-sans text-gray-200">
         <div className="systemhub-auth-ambient pointer-events-none absolute inset-0 z-0"></div>
@@ -680,26 +795,40 @@ function App() {
             SystemHub
           </p>
           <h1 className="mt-4 text-2xl font-black text-white">
-            กำลังตรวจสอบสถานะการเข้าสู่ระบบ
+            กำลังเตรียมข้อมูลระบบ
           </h1>
           <p className="mt-3 text-sm text-gray-400">
-            โปรดรอสักครู่ ระบบกำลังเชื่อมต่อ Firebase Authentication
+            โปรดรอสักครู่ ระบบกำลังเชื่อมต่อ Firebase Authentication และชั้นข้อมูลของแอป
           </p>
         </div>
       </div>
     );
   }
 
-  if (currentRoute.kind === 'dashboard' && !isAdminUser) {
-    return <Navigate to={authUser ? '/home' : '/admin'} replace />;
+  if (currentRoute.kind === 'dashboard' && !adminUser) {
+    return <Navigate to={ADMIN_ROUTE} replace />;
   }
 
   if (currentRoute.kind === 'user' && !authUser) {
     return <Navigate to={DEFAULT_ROUTE} replace />;
   }
 
-  if (currentRoute.kind === 'auth' && authUser && !postAuthRedirectPath) {
-    return <Navigate to={authenticatedRedirectPath} replace />;
+  if (
+    currentRoute.kind === 'auth' &&
+    currentRoute.view === 'admin' &&
+    adminUser &&
+    !postAuthRedirectPath
+  ) {
+    return <Navigate to={DASHBOARD_ROUTE} replace />;
+  }
+
+  if (
+    currentRoute.kind === 'auth' &&
+    currentRoute.view !== 'admin' &&
+    authUser &&
+    !postAuthRedirectPath
+  ) {
+    return <Navigate to={USER_HOME_ROUTE} replace />;
   }
 
   return (
@@ -724,6 +853,7 @@ function App() {
           <DashboardPage
             activeUsers={state.activeUsers}
             adminBookings={state.adminBookings}
+            adminNotifications={state.adminNotifications}
             adminDateFilter={state.adminDateFilter}
             adminCalendarView={state.adminCalendarView}
             onDateFilterChange={(value) => state.setAdminDateFilter(value)}
@@ -731,7 +861,9 @@ function App() {
             onNextMonth={handlers.handleNextMonth}
             onSelectDate={handlers.handleSelectAdminDate}
             onUpdateStatus={handlers.handleUpdateBookingStatus}
-            onLogout={handleLogout}
+            onUpdateAvailableQuantity={handlers.handleUpdateBookingAvailableQuantity}
+            onMarkAllNotificationsRead={handlers.handleMarkAllAdminNotificationsRead}
+            onLogout={handleAdminLogout}
           />
         ) : (
           <>
@@ -776,5 +908,3 @@ function App() {
 }
 
 export default App;
-
-

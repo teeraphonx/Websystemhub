@@ -1,12 +1,29 @@
-import { Bell, CalendarDays, CheckCircle, Clock3, LogOut, Package, Search, Users } from 'lucide-react';
+import {
+  Bell,
+  CalendarDays,
+  CheckCircle,
+  Clock3,
+  LogOut,
+  Package,
+  Search,
+  Users,
+} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import AdminBookingTable from '../../components/admin/AdminBookingTable';
 import AdminCalendar from '../../components/admin/AdminCalendar';
 import { useThaiDateTime } from '../../hooks/useThaiDateTime';
-import type { AdminBooking, AdminBookingStatus, CalendarDayType } from '../../types';
+import { getThaiMonthYearLabel } from '../../utils/date';
+import type {
+  AdminBooking,
+  AdminBookingStatus,
+  AdminNotification,
+  CalendarDayType,
+} from '../../types';
 
 interface DashboardPageProps {
   activeUsers: number;
   adminBookings: AdminBooking[];
+  adminNotifications: AdminNotification[];
   adminDateFilter: string;
   adminCalendarView: Date;
   onDateFilterChange: (value: string) => void;
@@ -14,12 +31,32 @@ interface DashboardPageProps {
   onNextMonth: () => void;
   onSelectDate: (dateString: string, type: CalendarDayType) => void;
   onUpdateStatus: (id: string, status: AdminBookingStatus) => void;
+  onUpdateAvailableQuantity: (id: string, quantity: number) => void;
+  onMarkAllNotificationsRead: () => void;
   onLogout: () => void;
 }
+
+const WEEKDAY_LABELS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'] as const;
+
+const parseDateKey = (dateKey: string) => {
+  const [year, month, day] = dateKey.split('-').map(Number);
+
+  return new Date(year, month - 1, day);
+};
+
+const isDateInCalendarMonth = (dateKey: string, currentMonth: Date) => {
+  const parsedDate = parseDateKey(dateKey);
+
+  return (
+    parsedDate.getFullYear() === currentMonth.getFullYear() &&
+    parsedDate.getMonth() === currentMonth.getMonth()
+  );
+};
 
 export default function DashboardPage({
   activeUsers,
   adminBookings,
+  adminNotifications,
   adminDateFilter,
   adminCalendarView,
   onDateFilterChange,
@@ -27,11 +64,48 @@ export default function DashboardPage({
   onNextMonth,
   onSelectDate,
   onUpdateStatus,
+  onUpdateAvailableQuantity,
+  onMarkAllNotificationsRead,
   onLogout,
 }: DashboardPageProps) {
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [animatedBookingCounts, setAnimatedBookingCounts] = useState<number[]>(() =>
+    WEEKDAY_LABELS.map(() => 0),
+  );
+  const notificationRef = useRef<HTMLDivElement | null>(null);
   const filteredBookings = adminDateFilter
     ? adminBookings.filter((booking) => booking.date === adminDateFilter)
     : adminBookings;
+  const bookingDateCounts = adminBookings.reduce<Record<string, number>>(
+    (counts, booking) => ({
+      ...counts,
+      [booking.date]: (counts[booking.date] ?? 0) + 1,
+    }),
+    {},
+  );
+  const monthlyBookings = adminBookings.filter((booking) =>
+    isDateInCalendarMonth(booking.date, adminCalendarView),
+  );
+  const bookingStatsByWeekday = WEEKDAY_LABELS.map((label, index) => ({
+    label,
+    count: monthlyBookings.filter(
+      (booking) => parseDateKey(booking.date).getDay() === index,
+    ).length,
+  }));
+  const maxDailyBookingCount = Math.max(
+    ...bookingStatsByWeekday.map((entry) => entry.count),
+    0,
+  );
+  const chartScaleMax = Math.max(maxDailyBookingCount, 1);
+  const chartTopLabel = maxDailyBookingCount;
+  const chartMidLabel =
+    maxDailyBookingCount > 1 ? Math.ceil(maxDailyBookingCount / 2) : 0;
+  const selectedWeekdayIndex = adminDateFilter
+    ? parseDateKey(adminDateFilter).getDay()
+    : -1;
+  const bookingChartSignature = bookingStatsByWeekday
+    .map((entry) => entry.count)
+    .join(',');
   const { currentDate, currentTime, timeZoneLabel } = useThaiDateTime();
 
   const pendingCount = filteredBookings.filter((booking) => booking.status === 'รออนุมัติ').length;
@@ -39,6 +113,37 @@ export default function DashboardPage({
   const rejectedCount = filteredBookings.filter((booking) => booking.status === 'ไม่อนุมัติ').length;
   const totalCount = pendingCount + approvedCount + rejectedCount;
   const approvalRatio = totalCount > 0 ? Math.round((approvedCount / totalCount) * 100) : 0;
+  const unreadNotificationCount = adminNotifications.filter(
+    (notification) => !notification.isRead,
+  ).length;
+
+  useEffect(() => {
+    const nextCounts = bookingStatsByWeekday.map((entry) => entry.count);
+    const frameId = window.requestAnimationFrame(() => {
+      setAnimatedBookingCounts(nextCounts);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [bookingChartSignature]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!notificationRef.current) {
+        return;
+      }
+
+      if (!notificationRef.current.contains(event.target as Node)) {
+        setIsNotificationOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const handleToggleNotifications = () => {
+    setIsNotificationOpen((current) => !current);
+  };
 
   return (
     <div className="z-10 min-h-screen w-full max-w-[1400px] animate-fade-up p-4 md:p-8">
@@ -70,10 +175,87 @@ export default function DashboardPage({
             </div>
           </div>
 
-          <button type="button" className="systemhub-admin-notification relative rounded-full p-2.5 text-gray-400 transition-colors hover:text-white">
-            <Bell size={18} />
-            <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--systemhub-base)] bg-[var(--systemhub-danger)]"></span>
-          </button>
+          <div ref={notificationRef} className="relative">
+            <button
+              type="button"
+              onClick={handleToggleNotifications}
+              className={`systemhub-admin-notification relative rounded-full p-2.5 transition-colors ${unreadNotificationCount > 0 ? 'border-[rgba(239,68,68,0.45)] bg-[rgba(60,10,18,0.82)] text-[var(--systemhub-danger-strong)] shadow-[0_0_18px_rgba(239,68,68,0.18)] hover:text-white' : 'text-gray-400 hover:text-white'}`}
+            >
+              <Bell size={18} />
+              {unreadNotificationCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[var(--systemhub-base)] bg-[var(--systemhub-danger)] px-1 text-[10px] font-black text-white">
+                  {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                </span>
+              )}
+            </button>
+
+            {isNotificationOpen && (
+              <div className="absolute right-0 top-[calc(100%+12px)] z-30 w-[320px] overflow-hidden rounded-2xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] shadow-[0_20px_50px_rgba(0,0,0,0.45)]">
+                <div className="border-b border-[var(--systemhub-border)] px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[12px] font-black uppercase tracking-[0.2em] text-white">
+                        การแจ้งเตือน
+                      </p>
+                      <p className="mt-1 text-[11px] text-gray-500">
+                        แจ้งเตือนล่าสุดจากคำขอจองของผู้ใช้งาน
+                      </p>
+                    </div>
+                    {unreadNotificationCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={onMarkAllNotificationsRead}
+                        className="rounded-full border border-[rgba(239,68,68,0.28)] bg-[rgba(60,10,18,0.72)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[var(--systemhub-danger-strong)] transition-colors hover:bg-[rgba(90,16,28,0.9)] hover:text-white"
+                      >
+                        อ่านทั้งหมด
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="max-h-[320px] overflow-y-auto px-3 py-3">
+                  {adminNotifications.length > 0 ? (
+                    <div className="space-y-2">
+                      {adminNotifications.slice(0, 8).map((notification) => (
+                        <div
+                          key={notification.id}
+                          className={`relative rounded-xl border px-3 py-3 ${notification.isRead ? 'border-[rgba(30,42,74,0.5)] bg-[rgba(8,12,22,0.68)]' : 'border-[rgba(239,68,68,0.42)] bg-[rgba(60,10,18,0.58)] shadow-[0_0_0_1px_rgba(239,68,68,0.1)]'}`}
+                        >
+                          {!notification.isRead && (
+                            <span className="absolute left-0 top-3 h-[calc(100%-24px)] w-1 rounded-r-full bg-[var(--systemhub-danger)]"></span>
+                          )}
+                          <div className="flex items-start justify-between gap-3 pl-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                {!notification.isRead && (
+                                  <span className="h-2 w-2 rounded-full bg-[var(--systemhub-danger)] shadow-[0_0_8px_rgba(239,68,68,0.85)]"></span>
+                                )}
+                                <p className={`text-[12px] font-bold ${notification.isRead ? 'text-white' : 'text-[var(--systemhub-danger-strong)]'}`}>
+                                  {notification.title}
+                                </p>
+                              </div>
+                              <p className={`mt-1 text-[11px] leading-5 ${notification.isRead ? 'text-gray-400' : 'text-red-100/85'}`}>
+                                {notification.desc}
+                              </p>
+                            </div>
+                            <span className={`whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.14em] ${notification.isRead ? 'text-gray-500' : 'text-[var(--systemhub-danger-strong)]'}`}>
+                              {notification.time}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+                      <Bell size={24} className="text-gray-500" />
+                      <p className="text-[12px] font-bold text-gray-400">
+                        ยังไม่มีการแจ้งเตือนใหม่
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <button onClick={onLogout} className="systemhub-admin-logout flex items-center gap-2 rounded-full px-5 py-2.5 text-[12px] font-bold transition-all shadow-lg">
             <LogOut size={16} /> ออกจากระบบ
@@ -137,12 +319,14 @@ export default function DashboardPage({
           selectedDate={adminDateFilter}
           onClearDate={() => onDateFilterChange('')}
           onUpdateStatus={onUpdateStatus}
+          onUpdateAvailableQuantity={onUpdateAvailableQuantity}
         />
 
         <div className="space-y-6">
           <AdminCalendar
             currentMonth={adminCalendarView}
             selectedDate={adminDateFilter}
+            bookingDateCounts={bookingDateCounts}
             onPrevMonth={onPrevMonth}
             onNextMonth={onNextMonth}
             onSelectDate={onSelectDate}
@@ -188,25 +372,48 @@ export default function DashboardPage({
           </div>
 
           <div className="systemhub-admin-panel flex flex-col justify-between p-6">
-            <h3 className="mb-6 text-[13px] font-black uppercase tracking-widest text-white">แสดงสถิติการยืมรายวัน</h3>
-            <div className="relative flex h-28 items-end justify-between px-2">
+            <div className="mb-6">
+              <h3 className="text-[13px] font-black uppercase tracking-widest text-white">แสดงสถิติการจองรายวัน</h3>
+              <p className="mt-2 text-[11px] font-bold text-gray-500">
+                อ้างอิงรายการจองในเดือน {getThaiMonthYearLabel(adminCalendarView)}
+              </p>
+            </div>
+            <div className="relative flex h-32 items-end justify-between px-2">
               <div className="absolute top-0 w-full border-t border-dashed border-[rgba(30,42,74,0.5)]"></div>
               <div className="absolute top-1/2 w-full border-t border-dashed border-[rgba(30,42,74,0.5)]"></div>
               <div className="absolute left-0 top-0 flex h-full flex-col justify-between py-1 text-[9px] font-bold text-gray-500">
-                <span>80</span><span>40</span><span>0</span>
+                <span>{chartTopLabel}</span><span>{chartMidLabel}</span><span>0</span>
               </div>
-              <div className="z-10 ml-6 flex w-full items-end justify-between">
-                {['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map((day, index) => (
-                  <div key={day} className="flex flex-col items-center gap-3">
-                    <div className="relative h-20 w-2.5 rounded-t-sm bg-[var(--systemhub-surface-inner)] group">
-                      <div
-                        className={`absolute bottom-0 w-full rounded-t-sm transition-all duration-500 group-hover:bg-[var(--systemhub-accent)] ${index === 5 ? 'bg-[var(--systemhub-accent)] shadow-[0_0_10px_rgba(96,165,250,0.6)]' : 'bg-[var(--systemhub-primary)]'}`}
-                        style={{ height: `${[40, 50, 70, 45, 90, 65, 30][index]}%` }}
-                      ></div>
+              <div className="z-10 ml-6 flex w-full items-end justify-between gap-2">
+                {bookingStatsByWeekday.map(({ label, count }, index) => {
+                  const animatedCount = animatedBookingCounts[index] ?? 0;
+                  const isHighlighted =
+                    selectedWeekdayIndex === index ||
+                    (!adminDateFilter && count > 0 && count === maxDailyBookingCount);
+                  const barHeight =
+                    animatedCount === 0
+                      ? '0%'
+                      : `${Math.max((animatedCount / chartScaleMax) * 100, 10)}%`;
+
+                  return (
+                    <div key={label} className="flex flex-1 flex-col items-center gap-3">
+                      <div className="relative flex h-20 w-full max-w-[18px] items-end rounded-t-sm bg-[var(--systemhub-surface-inner)] group">
+                        <div
+                          className={`absolute bottom-0 w-full rounded-t-sm transition-[height,background-color,box-shadow] duration-700 ease-out group-hover:bg-[var(--systemhub-accent)] ${isHighlighted ? 'bg-[var(--systemhub-accent)] shadow-[0_0_10px_rgba(96,165,250,0.6)]' : count > 0 ? 'bg-[var(--systemhub-primary)]' : 'bg-transparent'}`}
+                          style={{
+                            height: barHeight,
+                            transitionDelay: `${index * 45}ms`,
+                          }}
+                          title={`${label} ${count} รายการ`}
+                        ></div>
+                      </div>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className={`text-[10px] font-black ${isHighlighted ? 'text-white' : 'text-gray-500'}`}>{label}</span>
+                        <span className={`text-[9px] font-bold tabular-nums transition-colors duration-500 ${count > 0 ? 'text-[var(--systemhub-accent)]' : 'text-gray-600'}`}>{count}</span>
+                      </div>
                     </div>
-                    <span className={`text-[10px] font-black ${index === 5 ? 'text-white' : 'text-gray-500'}`}>{day}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

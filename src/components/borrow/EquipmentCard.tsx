@@ -8,6 +8,7 @@ interface EquipmentCardProps {
 
 export default function EquipmentCard({ item, onReserve }: EquipmentCardProps) {
   const Icon = item.icon;
+  const isOutOfStock = item.stock <= 0;
 
   return (
     <div className="bg-[var(--systemhub-surface-table)] border border-[var(--systemhub-border)] rounded-[1.2rem] p-4 shadow-[0_10px_30px_rgba(0,0,0,0.5)] transition-all duration-300 hover:-translate-y-2 hover:border-[rgba(59,130,246,0.6)] group animate-fade-up">
@@ -24,9 +25,11 @@ export default function EquipmentCard({ item, onReserve }: EquipmentCardProps) {
         <h3 className="text-[17px] font-black text-[var(--systemhub-accent)] italic tracking-wide truncate mb-0.5 transition-colors">{item.name}</h3>
         <p className="text-[11px] text-gray-400 font-medium tracking-wide mb-1.5 truncate">{item.sub}</p>
         <p className="text-[10px] text-gray-500 font-bold tracking-widest mb-3 uppercase">รหัส: {item.equipId}</p>
-        <div className="inline-flex items-center gap-2 bg-[#061b11] border border-[#0d3320] px-3 py-1.5 rounded-lg mb-5 shadow-inner">
-          <div className="w-1.5 h-1.5 bg-[#22c55e] rounded-full animate-pulse shadow-[0_0_5px_rgba(34,197,94,0.8)]"></div>
-          <span className="text-[10px] font-black text-[#22c55e] tracking-wider">พร้อมให้จอง</span>
+        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-5 shadow-inner ${isOutOfStock ? 'bg-[#2a1010] border border-[#4b1c1c]' : 'bg-[#061b11] border border-[#0d3320]'}`}>
+          <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.8)] ${isOutOfStock ? 'bg-[#ef4444] shadow-[0_0_5px_rgba(239,68,68,0.8)]' : 'bg-[#22c55e] animate-pulse'}`}></div>
+          <span className={`text-[10px] font-black tracking-wider ${isOutOfStock ? 'text-[#f87171]' : 'text-[#22c55e]'}`}>
+            {isOutOfStock ? 'สต็อกไม่พร้อมจอง' : 'พร้อมให้จอง'}
+          </span>
         </div>
         <div className="flex items-end justify-between border-t border-[rgba(27,41,71,0.7)] pt-4">
           <div>
@@ -35,15 +38,15 @@ export default function EquipmentCard({ item, onReserve }: EquipmentCardProps) {
           </div>
           <button
             type="button"
+            disabled={isOutOfStock}
             onClick={() => onReserve(item)}
-            className="btn-shine flex items-center gap-2 bg-[var(--systemhub-primary)] text-white px-5 py-2.5 rounded-xl text-[12px] font-black tracking-widest shadow-[0_5px_15px_rgba(37,99,235,0.4)] hover:shadow-[0_8px_20px_rgba(37,99,235,0.6)] hover:bg-[var(--systemhub-primary-hover)] active:scale-95 transition-all"
+            className="btn-shine flex items-center gap-2 bg-[var(--systemhub-primary)] text-white px-5 py-2.5 rounded-xl text-[12px] font-black tracking-widest shadow-[0_5px_15px_rgba(37,99,235,0.4)] hover:shadow-[0_8px_20px_rgba(37,99,235,0.6)] hover:bg-[var(--systemhub-primary-hover)] active:scale-95 transition-all disabled:cursor-not-allowed disabled:bg-[rgba(51,65,85,0.8)] disabled:text-gray-400 disabled:shadow-none disabled:hover:bg-[rgba(51,65,85,0.8)]"
           >
             <Lock size={14} strokeWidth={2.5} />
-            จองเลย
+            {isOutOfStock ? 'ของหมด' : 'จองเลย'}
           </button>
         </div>
       </div>
     </div>
   );
 }
-

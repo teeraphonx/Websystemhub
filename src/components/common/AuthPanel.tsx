@@ -1,4 +1,4 @@
-import type { FormEventHandler, ReactNode } from 'react';
+﻿import type { FormEventHandler, ReactNode } from 'react';
 import {
   Check,
   ChevronLeft,
@@ -29,6 +29,14 @@ interface AuthPanelProps {
   secondaryFieldType?: 'text' | 'email';
   secondaryFieldAutoComplete?: string;
   onSecondaryFieldChange?: (value: string) => void;
+  extraPasswordLabel?: string;
+  extraPassword?: string;
+  extraPasswordAutoComplete?: string;
+  onExtraPasswordChange?: (value: string) => void;
+  showExtraPassword?: boolean;
+  onToggleExtraPassword?: () => void;
+  showExtraPasswordField?: boolean;
+  passwordLabel?: string;
   password: string;
   passwordAutoComplete?: string;
   onPasswordChange: (value: string) => void;
@@ -59,6 +67,7 @@ interface PasswordFieldProps {
   visible: boolean;
   autoComplete?: string;
   disabled?: boolean;
+  delayClass?: string;
   onChange: (value: string) => void;
   onToggle: () => void;
 }
@@ -113,11 +122,12 @@ function PasswordField({
   visible,
   autoComplete,
   disabled = false,
+  delayClass = 'delay-300',
   onChange,
   onToggle,
 }: PasswordFieldProps) {
   return (
-    <div className="space-y-2 text-left animate-fade-up delay-300 group">
+    <div className={`space-y-2 text-left animate-fade-up group ${delayClass}`}>
       <label className="ml-1 flex items-center space-x-3 text-[13px] font-bold uppercase tracking-widest text-gray-500 transition-colors group-focus-within:text-[var(--systemhub-accent)]">
         <Lock size={14} />
         <span>{label}</span>
@@ -163,6 +173,14 @@ export default function AuthPanel({
   secondaryFieldType = 'text',
   secondaryFieldAutoComplete,
   onSecondaryFieldChange,
+  extraPasswordLabel,
+  extraPassword = '',
+  extraPasswordAutoComplete,
+  onExtraPasswordChange,
+  showExtraPassword = false,
+  onToggleExtraPassword,
+  showExtraPasswordField = false,
+  passwordLabel = 'รหัสผ่าน',
   password,
   passwordAutoComplete,
   onPasswordChange,
@@ -225,14 +243,28 @@ export default function AuthPanel({
           />
         )}
 
+        {showExtraPasswordField && extraPasswordLabel && onExtraPasswordChange && onToggleExtraPassword && (
+          <PasswordField
+            label={extraPasswordLabel}
+            value={extraPassword}
+            visible={showExtraPassword}
+            autoComplete={extraPasswordAutoComplete}
+            disabled={isSubmitting}
+            delayClass="delay-[275ms]"
+            onChange={onExtraPasswordChange}
+            onToggle={onToggleExtraPassword}
+          />
+        )}
+
         {showPasswordField && (
           <>
             <PasswordField
-              label="รหัสผ่าน"
+              label={passwordLabel}
               value={password}
               visible={showPassword}
               autoComplete={passwordAutoComplete}
               disabled={isSubmitting}
+              delayClass={showExtraPasswordField ? 'delay-[325ms]' : 'delay-300'}
               onChange={onPasswordChange}
               onToggle={onTogglePassword}
             />

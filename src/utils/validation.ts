@@ -8,6 +8,11 @@ const FALLBACK_ERROR_MESSAGE = 'ไม่สามารถทำรายกา
 
 type AuthFlow = AuthView | 'change-password';
 
+type FirebaseLikeError = {
+  code?: string;
+  message?: string;
+};
+
 export type AuthValidationIssue =
   | 'missing-identifier'
   | 'missing-fields'
@@ -53,7 +58,9 @@ export const getAuthValidationResult = ({
         'แจ้งเตือน',
         view === 'register'
           ? 'กรุณากรอกชื่อผู้ใช้'
-          : 'กรุณากรอกชื่อผู้ใช้หรืออีเมล',
+          : view === 'admin'
+            ? 'กรุณากรอกอีเมลแอดมิน'
+            : 'กรุณากรอกชื่อผู้ใช้หรืออีเมล',
       ),
     };
   }
@@ -69,7 +76,7 @@ export const getAuthValidationResult = ({
   }
 
   if (
-    !password && view !== 'forgot-password' ||
+    (!password && view !== 'forgot-password') ||
     (view === 'register' && (!trimmedEmail || !confirmPassword))
   ) {
     return {
@@ -140,25 +147,70 @@ const getAuthErrorTitle = (flow: AuthFlow) => {
   }
 };
 
-export const createAdminAccessDeniedModal = () =>
-  createErrorModal('สิทธิ์ไม่เพียงพอ', 'บัญชีนี้ไม่ได้รับสิทธิ์ผู้ดูแลระบบ');
+const getErrorDetails = (error: unknown): FirebaseLikeError => {
+  if (error instanceof FirebaseError) {
+    return {
+      code: error.code,
+      message: error.message,
+    };
+  }
+
+  if (error instanceof Error) {
+    const errorWithCode = error as Error & { code?: unknown };
+
+    return {
+      code: typeof errorWithCode.code === 'string' ? errorWithCode.code : undefined,
+      message: error.message,
+    };
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    const errorRecord = error as Record<string, unknown>;
+
+    return {
+      code: typeof errorRecord.code === 'string' ? errorRecord.code : undefined,
+      message:
+        typeof errorRecord.message === 'string' ? errorRecord.message : undefined,
+    };
+  }
+
+  return {};
+};
+
+const getUnknownAuthErrorMessage = ({
+  code,
+  message,
+}: FirebaseLikeError) => {
+  const trimmedMessage = message?.trim();
+
+  if (trimmedMessage && code && !trimmedMessage.includes(code)) {
+    return `${trimmedMessage} (${code})`;
+  }
+
+  if (trimmedMessage) {
+    return trimmedMessage;
+  }
+
+  if (code) {
+    return `${FALLBACK_ERROR_MESSAGE} (${code})`;
+  }
+
+  return FALLBACK_ERROR_MESSAGE;
+};
+
+export const createAdminFirebaseNotConfiguredModal = () =>
+  createErrorModal(
+    'ยังไม่ได้ตั้งค่า Firebase แอดมิน',
+    'กรุณากำหนด VITE_ADMIN_FIREBASE_* ในไฟล์ .env ก่อนใช้งานหน้าแอดมิน',
+  );
 
 export const getFirebaseAuthErrorModal = (
   error: unknown,
   flow: AuthFlow,
 ): ModalState => {
-  if (error instanceof Error && !(error instanceof FirebaseError)) {
-    return createErrorModal(
-      getAuthErrorTitle(flow),
-      error.message || FALLBACK_ERROR_MESSAGE,
-    );
-  }
+  const errorDetails = getErrorDetails(error);
 
-  if (!(error instanceof FirebaseError)) {
-    return createErrorModal(getAuthErrorTitle(flow), FALLBACK_ERROR_MESSAGE);
-  }
-
-  switch (error.code) {
+  switch (errorDetails.code) {
     case 'permission-denied':
       return createErrorModal(
         getAuthErrorTitle(flow),
@@ -183,6 +235,27 @@ export const getFirebaseAuthErrorModal = (
         'กรอกรหัสผ่าน',
         'กรุณากรอกรหัสผ่านก่อนดำเนินการ',
       );
+    case 'auth/invalid-api-key':
+      return createErrorModal(
+        getAuthErrorTitle(flow),
+        'Firebase API key ไม่ถูกต้อง กรุณาตรวจสอบค่าในไฟล์ .env แล้วรีสตาร์ต dev server',
+      );
+    case 'auth/app-not-authorized':
+    case 'auth/unauthorized-domain':
+      return createErrorModal(
+        getAuthErrorTitle(flow),
+        'โปรเจกต์ Firebase นี้ยังไม่อนุญาตให้แอปนี้ใช้งาน Authentication กรุณาตรวจสอบ Web app และ Authorized domains',
+      );
+    case 'auth/operation-not-allowed':
+      return createErrorModal(
+        getAuthErrorTitle(flow),
+        'ยังไม่ได้เปิดใช้งานการเข้าสู่ระบบแบบ Email/Password ใน Firebase Authentication',
+      );
+    case 'auth/configuration-not-found':
+      return createErrorModal(
+        getAuthErrorTitle(flow),
+        'ไม่พบการตั้งค่า Sign-in method ของ Firebase Authentication กรุณาตรวจสอบหน้า Sign-in method',
+      );
     case 'auth/email-already-in-use':
       return createWarningModal(
         'อีเมลถูกใช้งานแล้ว',
@@ -202,6 +275,7 @@ export const getFirebaseAuthErrorModal = (
       );
     case 'auth/wrong-password':
     case 'auth/invalid-credential':
+    case 'auth/invalid-login-credentials':
       return createErrorModal(
         getAuthErrorTitle(flow),
         'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
@@ -227,7 +301,10 @@ export const getFirebaseAuthErrorModal = (
         'กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่ก่อนเปลี่ยนรหัสผ่าน',
       );
     default:
-      return createErrorModal(getAuthErrorTitle(flow), FALLBACK_ERROR_MESSAGE);
+      return createErrorModal(
+        getAuthErrorTitle(flow),
+        getUnknownAuthErrorMessage(errorDetails),
+      );
   }
 };
 
