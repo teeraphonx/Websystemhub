@@ -44,6 +44,7 @@ import { useAppHandlers } from './hooks/useAppHandlers';
 import { useAppState } from './hooks/useAppState';
 import { createSuccessModal } from './utils/modal';
 import {
+  clearPromoPopupSuppression,
   isPromoPopupSuppressed,
   suppressPromoPopupForOneHour,
 } from './utils/promo';
@@ -78,6 +79,8 @@ const ADMIN_ROUTE = '/admin';
 const DASHBOARD_ROUTE = '/dashboard';
 const USER_HOME_ROUTE = '/home';
 const REDIRECT_DELAY_MS = 1400;
+const PROMO_POPUP_DELAY_MS = 120;
+const PROMO_AFTER_AUTH_BUFFER_MS = 500;
 const CATEGORY_IDS: CategoryId[] = ['it', 'av', 'furniture', 'inspection'];
 
 const normalizePathname = (pathname: string) => {
@@ -229,6 +232,7 @@ function App() {
   const [isAdminAuthReady, setIsAdminAuthReady] = useState(false);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [postAuthRedirectPath, setPostAuthRedirectPath] = useState<string | null>(null);
+  const [promoReadyAt, setPromoReadyAt] = useState(0);
   const {
     activeUserTab,
     username,
@@ -319,6 +323,7 @@ function App() {
           }
 
           setPostAuthRedirectPath(null);
+          setPromoReadyAt(0);
           setUsername('');
           setEmail('');
           setRememberMe(false);
@@ -408,21 +413,36 @@ function App() {
   }, [setAdminPassword, setAdminUsername, setShowAdminPassword]);
 
   useEffect(() => {
-    if (!isAuthReady || !authUser || !isUserHomeRoute || isPromoPopupSuppressed()) {
+    if (
+      !isAuthReady ||
+      !authUser ||
+      !isUserHomeRoute ||
+      postAuthRedirectPath ||
+      state.modalState.isOpen ||
+      isPromoPopupSuppressed()
+    ) {
       return;
     }
 
+    const delayMs = Math.max(PROMO_POPUP_DELAY_MS, promoReadyAt - Date.now());
     const timeoutId = window.setTimeout(() => {
       setDontShowPromo(false);
       setShowPromoPopup(true);
-    }, 120);
+    }, delayMs);
 
     return () => {
       window.clearTimeout(timeoutId);
       setShowPromoPopup(false);
       setDontShowPromo(false);
     };
-  }, [authUser, isAuthReady, isUserHomeRoute]);
+  }, [
+    authUser,
+    isAuthReady,
+    isUserHomeRoute,
+    postAuthRedirectPath,
+    promoReadyAt,
+    state.modalState.isOpen,
+  ]);
 
   const handleClosePromoPopup = () => {
     if (dontShowPromo) {
@@ -476,9 +496,11 @@ function App() {
 
       try {
         setIsAuthSubmitting(true);
+        setPostAuthRedirectPath(DASHBOARD_ROUTE);
 
         if (!isAdminFirebaseConfigured()) {
           setModalState(createAdminFirebaseNotConfiguredModal());
+          setPostAuthRedirectPath(null);
           return;
         }
 
@@ -490,7 +512,6 @@ function App() {
         );
 
         const successCopy = getAuthSuccessMessage('admin');
-        setPostAuthRedirectPath(DASHBOARD_ROUTE);
         setModalState(createSuccessModal(successCopy.title, successCopy.desc));
 
         window.setTimeout(() => {
@@ -526,6 +547,11 @@ function App() {
       setIsAuthSubmitting(true);
       const trimmedUsername = username.trim();
       const trimmedEmail = email.trim();
+      const nextPath = getPostAuthPath(currentRoute.view);
+
+      if (currentRoute.view !== 'forgot-password') {
+        setPostAuthRedirectPath(nextPath);
+      }
 
       if (currentRoute.view === 'forgot-password') {
         const resolvedEmail = await resolveEmailForAuth(trimmedUsername);
@@ -587,8 +613,12 @@ function App() {
       }
 
       const successCopy = getAuthSuccessMessage(currentRoute.view);
-      const nextPath = getPostAuthPath(currentRoute.view);
-      setPostAuthRedirectPath(nextPath);
+      if (nextPath === USER_HOME_ROUTE) {
+        clearPromoPopupSuppression();
+        setPromoReadyAt(
+          Date.now() + REDIRECT_DELAY_MS + PROMO_AFTER_AUTH_BUFFER_MS,
+        );
+      }
       setModalState(createSuccessModal(successCopy.title, successCopy.desc));
 
       window.setTimeout(() => {
