@@ -334,7 +334,7 @@ function App() {
         setEmail(nextUser.email ?? '');
 
         try {
-          const profile = await getUserProfile(nextUser.uid);
+          const profile = await getUserProfile(nextUser.uid, nextUser.email ?? '');
 
           if (!isMounted) {
             return;
@@ -565,11 +565,25 @@ function App() {
       } else {
         const resolvedEmail = await resolveEmailForAuth(trimmedUsername);
         await setFirebaseAuthPersistence(rememberMe);
-        await signInWithEmailAndPassword(
+        const userCredential = await signInWithEmailAndPassword(
           getFirebaseAuth(),
           resolvedEmail,
           password,
         );
+        try {
+          const profile = await getUserProfile(
+            userCredential.user.uid,
+            userCredential.user.email ?? resolvedEmail,
+          );
+
+          setUsername(
+            profile?.username ?? userCredential.user.email?.split('@')[0] ?? '',
+          );
+        } catch {
+          setUsername(userCredential.user.email?.split('@')[0] ?? '');
+        }
+
+        setEmail(userCredential.user.email ?? resolvedEmail);
       }
 
       const successCopy = getAuthSuccessMessage(currentRoute.view);

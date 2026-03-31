@@ -5,7 +5,17 @@ import {
   getAuth,
   setPersistence,
 } from 'firebase/auth';
-import { doc, getDoc, getFirestore, runTransaction } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  getFirestore,
+  limit,
+  query,
+  runTransaction,
+  where,
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBFCcOdy9yvvjmbw-fDP3IBz2mhzJp5JeA',
@@ -17,7 +27,7 @@ const firebaseConfig = {
   measurementId: 'G-LG3C5VMZHQ',
 };
 
-interface UserProfileRecord {
+export interface UserProfileRecord {
   uid: string;
   username: string;
   normalizedUsername: string;
@@ -49,8 +59,58 @@ export const setFirebaseAuthPersistence = async (rememberMe: boolean) => {
 };
 
 export const normalizeUsername = (value: string) => value.trim().toLowerCase();
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 const looksLikeEmail = (value: string) => value.includes('@');
+
+const buildUserProfileRecord = (
+  uid: string,
+  primaryData: Partial<UserProfileRecord> | null,
+  fallbackData: Partial<UserProfileRecord> | null = null,
+  fallbackEmail = '',
+): UserProfileRecord => {
+  const email = normalizeEmail(
+    primaryData?.email ?? fallbackData?.email ?? fallbackEmail,
+  );
+  const username =
+    fallbackData?.username?.trim() ||
+    primaryData?.username?.trim() ||
+    email.split('@')[0] ||
+    '';
+
+  return {
+    uid: primaryData?.uid ?? fallbackData?.uid ?? uid,
+    username,
+    normalizedUsername:
+      fallbackData?.normalizedUsername ??
+      primaryData?.normalizedUsername ??
+      normalizeUsername(username),
+    email,
+    createdAt: primaryData?.createdAt ?? fallbackData?.createdAt ?? 0,
+  };
+};
+
+const findUserProfileByEmail = async (email: string) => {
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const snapshot = await getDocs(
+    query(
+      collection(db, USERNAMES_COLLECTION),
+      where('email', '==', normalizedEmail),
+      limit(1),
+    ),
+  );
+
+  if (snapshot.empty) {
+    return null;
+  }
+
+  return snapshot.docs[0].data() as Partial<UserProfileRecord>;
+};
 
 export const resolveEmailForAuth = async (identifier: string) => {
   const trimmedIdentifier = identifier.trim();
@@ -87,7 +147,7 @@ export const createUserProfile = async ({
 }: Pick<UserProfileRecord, 'uid' | 'username' | 'email'>) => {
   const cleanUsername = username.trim();
   const normalizedUsername = normalizeUsername(cleanUsername);
-  const cleanEmail = email.trim().toLowerCase();
+  const cleanEmail = normalizeEmail(email);
 
   await runTransaction(db, async (transaction) => {
     const usernameRef = doc(db, USERNAMES_COLLECTION, normalizedUsername);
@@ -111,13 +171,25 @@ export const createUserProfile = async ({
   });
 };
 
-export const getUserProfile = async (uid: string) => {
+export const getUserProfile = async (uid: string, fallbackEmail = '') => {
   const profileSnapshot = await getDoc(doc(db, PROFILES_COLLECTION, uid));
+  const profileData = profileSnapshot.exists()
+    ? (profileSnapshot.data() as Partial<UserProfileRecord>)
+    : null;
 
-  if (!profileSnapshot.exists()) {
+  const fallbackProfileData = await findUserProfileByEmail(
+    profileData?.email ?? fallbackEmail,
+  );
+
+  if (!profileData && !fallbackProfileData) {
     return null;
   }
 
-  return profileSnapshot.data() as UserProfileRecord;
+  return buildUserProfileRecord(
+    uid,
+    profileData,
+    fallbackProfileData,
+    fallbackEmail,
+  );
 };
 
