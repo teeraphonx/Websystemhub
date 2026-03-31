@@ -53,7 +53,7 @@ export default function ContactAdminPage({ onBack, onSuccess }: ContactAdminPage
             </div>
             <div>
               <p className="text-gray-500 text-[10px] font-bold tracking-widest uppercase mb-1">อีเมลติดต่อ</p>
-              <p className="text-white text-[14px] font-bold tracking-wide">contact@ccib.go.th</p>
+              <p className="text-white text-[14px] font-bold tracking-wide">contact@ccid.go.th</p>
             </div>
           </div>
         </div>
