@@ -67,38 +67,21 @@ type UserRouteState = {
   categoryId: CategoryId | null;
 };
 
-type PreviewRouteState = {
-  kind: 'preview';
-  view: Extract<AppView, 'user-home'>;
-  userTab: Extract<UserTab, 'user'>;
-  categoryId: null;
-};
-
 type DashboardRouteState = {
   kind: 'dashboard';
   view: Extract<AppView, 'dashboard'>;
 };
 
-type AppRouteState =
-  | AuthRouteState
-  | UserRouteState
-  | PreviewRouteState
-  | DashboardRouteState;
+type AppRouteState = AuthRouteState | UserRouteState | DashboardRouteState;
 
 const DEFAULT_ROUTE = '/login';
 const ADMIN_ROUTE = '/admin';
 const DASHBOARD_ROUTE = '/dashboard';
 const USER_HOME_ROUTE = '/home';
-const PROFILE_PREVIEW_ROUTE = '/profile-preview';
 const REDIRECT_DELAY_MS = 1400;
 const PROMO_POPUP_DELAY_MS = 120;
 const PROMO_AFTER_AUTH_BUFFER_MS = 500;
 const CATEGORY_IDS: CategoryId[] = ['it', 'av', 'furniture', 'inspection'];
-const PROFILE_PREVIEW_DATA = {
-  username: 'teeraphon',
-  email: 'teeraphon.sud@gmail.com',
-  userReservations: 3,
-} as const;
 
 const normalizePathname = (pathname: string) => {
   if (!pathname || pathname === '/') {
@@ -197,13 +180,6 @@ const resolveAppRoute = (pathname: string): AppRouteState | null => {
         userTab: 'user',
         categoryId: null,
       };
-    case PROFILE_PREVIEW_ROUTE:
-      return {
-        kind: 'preview',
-        view: 'user-home',
-        userTab: 'user',
-        categoryId: null,
-      };
     case '/profile/history':
       return {
         kind: 'user',
@@ -292,7 +268,6 @@ function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const currentRoute = resolveAppRoute(location.pathname);
-  const isPreviewRoute = currentRoute?.kind === 'preview';
   const isUserHomeRoute =
     currentRoute?.kind === 'user' && currentRoute.userTab === 'home';
 
@@ -305,7 +280,7 @@ function App() {
       setView(currentRoute.view);
     }
 
-    if (currentRoute.kind === 'user' || currentRoute.kind === 'preview') {
+    if (currentRoute.kind === 'user') {
       if (activeUserTab !== currentRoute.userTab) {
         setActiveUserTab(currentRoute.userTab);
       }
@@ -771,10 +746,7 @@ function App() {
   };
 
   const renderUserPage = () => {
-    if (
-      !currentRoute ||
-      (currentRoute.kind !== 'user' && currentRoute.kind !== 'preview')
-    ) {
+    if (!currentRoute || currentRoute.kind !== 'user') {
       return null;
     }
 
@@ -806,30 +778,12 @@ function App() {
       case 'user':
         return (
           <UserProfilePage
-            username={
-              isPreviewRoute ? PROFILE_PREVIEW_DATA.username : username
-            }
-            email={
-              isPreviewRoute
-                ? PROFILE_PREVIEW_DATA.email
-                : authUser?.email ?? email
-            }
-            userReservations={
-              isPreviewRoute
-                ? PROFILE_PREVIEW_DATA.userReservations
-                : state.userReservations
-            }
-            onOpenChangePassword={
-              isPreviewRoute
-                ? () => undefined
-                : () => handleUserRouteChange('change_password')
-            }
-            onOpenHistory={
-              isPreviewRoute
-                ? () => undefined
-                : () => handleUserRouteChange('history')
-            }
-            onLogout={isPreviewRoute ? () => undefined : handleUserLogout}
+            username={username}
+            email={authUser?.email ?? email}
+            userReservations={state.userReservations}
+            onOpenChangePassword={() => handleUserRouteChange('change_password')}
+            onOpenHistory={() => handleUserRouteChange('history')}
+            onLogout={handleUserLogout}
           />
         );
       case 'history':
@@ -867,7 +821,7 @@ function App() {
   }
 
   const shouldShowFirebaseBootstrap =
-    (!isPreviewRoute && !state.isAppDataReady) ||
+    !state.isAppDataReady ||
     (!isAuthReady && currentRoute.kind === 'user') ||
     (!isAuthReady && currentRoute.kind === 'auth' && currentRoute.view !== 'admin') ||
     (!isAdminAuthReady &&
@@ -930,14 +884,12 @@ function App() {
         <div className="systemhub-auth-focus pointer-events-none absolute left-1/2 top-[4.5rem] z-0 h-[34rem] w-[54rem] -translate-x-1/2"></div>
         <div className="systemhub-auth-horizon pointer-events-none absolute left-0 right-0 top-[6.25rem] z-0 h-px opacity-80"></div>
 
-        {currentRoute.kind === 'user' || currentRoute.kind === 'preview' ? (
+        {currentRoute.kind === 'user' ? (
           <div className="z-10 min-h-screen w-full max-w-[1200px] p-4 md:p-8">
             <Navbar
               items={USER_NAV_ITEMS}
               activeTab={currentRoute.userTab}
-              onSelect={
-                isPreviewRoute ? () => undefined : handleUserRouteChange
-              }
+              onSelect={handleUserRouteChange}
             />
             {renderUserPage()}
           </div>
