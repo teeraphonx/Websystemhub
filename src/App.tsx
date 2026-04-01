@@ -766,7 +766,13 @@ function App() {
         );
       case 'status':
         return (
-          <ReservationStatusPage onBack={() => handleUserRouteChange('home')} />
+          <ReservationStatusPage
+            bookings={state.adminBookings}
+            categoryItems={state.categoryItems}
+            currentUsername={username}
+            currentEmail={authUser?.email ?? email}
+            onBack={() => handleUserRouteChange('home')}
+          />
         );
       case 'contact':
         return (
