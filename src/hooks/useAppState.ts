@@ -1,5 +1,5 @@
 import { useEffect, useState, type SetStateAction } from 'react';
-import { appDataStore } from '../lib/appDataStore';
+import { APP_DATA_STORAGE_KEY, appDataStore } from '../lib/appDataStore';
 import type { AppDataSnapshot, AppState } from '../types';
 
 const resolveSliceUpdate = <T,>(
@@ -78,6 +78,21 @@ export const useAppState = (): AppState => {
 
     void appDataStore.saveSnapshot(appData);
   }, [appData, isAppDataReady]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== APP_DATA_STORAGE_KEY) {
+        return;
+      }
+
+      void appDataStore.loadSnapshot().then((snapshot) => {
+        setAppData(snapshot);
+      });
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   const setAdminBookings: AppState['setAdminBookings'] = (nextValue) => {
     setAppData((current) => ({

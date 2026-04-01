@@ -36,6 +36,12 @@ const createBangkokDateKey = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+const createCalendarDateFromDateKey = (dateKey: string) => {
+  const [year, month, day] = dateKey.split('-').map(Number);
+
+  return new Date(year, month - 1, day);
+};
+
 const createUserAvatar = (label: string) => {
   const initials = label
     .trim()
@@ -99,7 +105,10 @@ const updateInventoryStock = (
   };
 };
 
-const getApprovedQuantity = (
+const bookingConsumesStock = (status: AdminBookingStatus) =>
+  status === 'รออนุมัติ' || status === 'อนุมัติแล้ว';
+
+const getFulfillableQuantity = (
   booking: AdminBooking,
   categoryItems: CategoryItemsMap,
 ) => {
@@ -206,6 +215,15 @@ export const useAppHandlers = (state: AppState) => {
     };
 
     state.setAdminBookings((bookings) => [nextBooking, ...bookings]);
+    state.setCategoryItems((categoryItems) =>
+      updateInventoryStock(
+        categoryItems,
+        nextBooking.itemId,
+        -nextBooking.availableQuantity,
+      ),
+    );
+    state.setAdminDateFilter(nextBooking.date);
+    state.setAdminCalendarView(createCalendarDateFromDateKey(nextBooking.date));
     state.setAdminNotifications((notifications) => [
       {
         id: `notif-${nextBookingId}`,
@@ -235,15 +253,38 @@ export const useAppHandlers = (state: AppState) => {
   ) => {
     const targetBooking = state.adminBookings.find((booking) => booking.id === id);
 
-    if (!targetBooking) {
+    if (!targetBooking || targetBooking.status === newStatus) {
       return;
     }
 
-    if (
-      targetBooking.status !== 'อนุมัติแล้ว' &&
-      newStatus === 'อนุมัติแล้ว'
-    ) {
-      const approvedQuantity = getApprovedQuantity(
+    if (newStatus === 'อนุมัติแล้ว') {
+      if (bookingConsumesStock(targetBooking.status)) {
+        if (targetBooking.availableQuantity <= 0) {
+          state.setModalState(
+            createWarningModal(
+              'ยังไม่สามารถอนุมัติได้',
+              'กรุณาระบุจำนวนเบิกได้มากกว่า 0 ก่อนอนุมัติรายการนี้',
+            ),
+          );
+          return;
+        }
+
+        state.setAdminBookings((bookings) =>
+          bookings.map((booking) =>
+            booking.id === id ? { ...booking, status: newStatus } : booking,
+          ),
+        );
+        state.setModalState(
+          createSuccessModal(
+            'ทำรายการสำเร็จ',
+            `อัปเดตสถานะเป็น "${newStatus}" เรียบร้อยแล้ว`,
+          ),
+        );
+        window.setTimeout(closeModal, 1200);
+        return;
+      }
+
+      const approvedQuantity = getFulfillableQuantity(
         targetBooking,
         state.categoryItems,
       );
@@ -287,8 +328,8 @@ export const useAppHandlers = (state: AppState) => {
     }
 
     if (
-      targetBooking.status === 'อนุมัติแล้ว' &&
-      newStatus !== 'อนุมัติแล้ว'
+      bookingConsumesStock(targetBooking.status) &&
+      !bookingConsumesStock(newStatus)
     ) {
       state.setAdminBookings((bookings) =>
         bookings.map((booking) =>
@@ -306,6 +347,53 @@ export const useAppHandlers = (state: AppState) => {
         createSuccessModal(
           'ทำรายการสำเร็จ',
           `อัปเดตสถานะเป็น "${newStatus}" และคืนสต็อก ${targetBooking.availableQuantity} ชิ้นแล้ว`,
+        ),
+      );
+      window.setTimeout(closeModal, 1200);
+      return;
+    }
+
+    if (
+      !bookingConsumesStock(targetBooking.status) &&
+      bookingConsumesStock(newStatus)
+    ) {
+      const reservedQuantity = getFulfillableQuantity(
+        targetBooking,
+        state.categoryItems,
+      );
+
+      if (reservedQuantity <= 0) {
+        state.setModalState(
+          createWarningModal(
+            'สต็อกไม่เพียงพอ',
+            'ไม่สามารถอัปเดตสถานะรายการนี้ได้ เพราะสต็อกคงเหลือไม่พอ',
+          ),
+        );
+        return;
+      }
+
+      state.setAdminBookings((bookings) =>
+        bookings.map((booking) =>
+          booking.id === id
+            ? {
+                ...booking,
+                status: newStatus,
+                availableQuantity: reservedQuantity,
+              }
+            : booking,
+        ),
+      );
+      state.setCategoryItems((categoryItems) =>
+        updateInventoryStock(
+          categoryItems,
+          targetBooking.itemId,
+          -reservedQuantity,
+        ),
+      );
+      state.setModalState(
+        createSuccessModal(
+          'ทำรายการสำเร็จ',
+          `อัปเดตสถานะเป็น "${newStatus}" และตัดสต็อก ${reservedQuantity} ชิ้นแล้ว`,
         ),
       );
       window.setTimeout(closeModal, 1200);
@@ -338,7 +426,7 @@ export const useAppHandlers = (state: AppState) => {
 
     const inventoryEntry = findInventoryEntry(state.categoryItems, targetBooking.itemId);
     const maxFromStock = inventoryEntry
-      ? targetBooking.status === 'อนุมัติแล้ว'
+      ? bookingConsumesStock(targetBooking.status)
         ? inventoryEntry.item.stock + targetBooking.availableQuantity
         : inventoryEntry.item.stock
       : targetBooking.requestedQuantity;
@@ -361,7 +449,7 @@ export const useAppHandlers = (state: AppState) => {
       }),
     );
 
-    if (targetBooking.status === 'อนุมัติแล้ว') {
+    if (bookingConsumesStock(targetBooking.status)) {
       state.setCategoryItems((categoryItems) =>
         updateInventoryStock(
           categoryItems,
