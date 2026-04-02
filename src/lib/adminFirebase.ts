@@ -9,14 +9,48 @@ import {
 
 const ADMIN_APP_NAME = 'systemhub-admin-auth';
 
+const adminFirebaseFallbackConfig = {
+  apiKey: 'AIzaSyBQZU_Z2iDoJQh3lC_7JtEZtRtZnS4g9oI',
+  authDomain: 'adminloginweb.firebaseapp.com',
+  projectId: 'adminloginweb',
+  storageBucket: 'adminloginweb.firebasestorage.app',
+  messagingSenderId: '406257828201',
+  appId: '1:406257828201:web:5f000fde566138e9567df8',
+  measurementId: 'G-S6ZGKFB95S',
+};
+
+const resolveAdminFirebaseValue = (value: string | undefined, fallback: string) =>
+  value?.trim() || fallback;
+
 const adminFirebaseConfig = {
-  apiKey: import.meta.env.VITE_ADMIN_FIREBASE_API_KEY ?? '',
-  authDomain: import.meta.env.VITE_ADMIN_FIREBASE_AUTH_DOMAIN ?? '',
-  projectId: import.meta.env.VITE_ADMIN_FIREBASE_PROJECT_ID ?? '',
-  storageBucket: import.meta.env.VITE_ADMIN_FIREBASE_STORAGE_BUCKET ?? '',
-  messagingSenderId: import.meta.env.VITE_ADMIN_FIREBASE_MESSAGING_SENDER_ID ?? '',
-  appId: import.meta.env.VITE_ADMIN_FIREBASE_APP_ID ?? '',
-  measurementId: import.meta.env.VITE_ADMIN_FIREBASE_MEASUREMENT_ID ?? '',
+  apiKey: resolveAdminFirebaseValue(
+    import.meta.env.VITE_ADMIN_FIREBASE_API_KEY,
+    adminFirebaseFallbackConfig.apiKey,
+  ),
+  authDomain: resolveAdminFirebaseValue(
+    import.meta.env.VITE_ADMIN_FIREBASE_AUTH_DOMAIN,
+    adminFirebaseFallbackConfig.authDomain,
+  ),
+  projectId: resolveAdminFirebaseValue(
+    import.meta.env.VITE_ADMIN_FIREBASE_PROJECT_ID,
+    adminFirebaseFallbackConfig.projectId,
+  ),
+  storageBucket: resolveAdminFirebaseValue(
+    import.meta.env.VITE_ADMIN_FIREBASE_STORAGE_BUCKET,
+    adminFirebaseFallbackConfig.storageBucket,
+  ),
+  messagingSenderId: resolveAdminFirebaseValue(
+    import.meta.env.VITE_ADMIN_FIREBASE_MESSAGING_SENDER_ID,
+    adminFirebaseFallbackConfig.messagingSenderId,
+  ),
+  appId: resolveAdminFirebaseValue(
+    import.meta.env.VITE_ADMIN_FIREBASE_APP_ID,
+    adminFirebaseFallbackConfig.appId,
+  ),
+  measurementId: resolveAdminFirebaseValue(
+    import.meta.env.VITE_ADMIN_FIREBASE_MEASUREMENT_ID,
+    adminFirebaseFallbackConfig.measurementId,
+  ),
 };
 
 let adminAuthInstance: Auth | null = null;
