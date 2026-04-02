@@ -8,8 +8,16 @@ import {
   signOut as firebaseSignOut,
   type User as FirebaseUser,
 } from 'firebase/auth';
+import { Calendar as CalendarIcon, Check, ChevronLeft, X } from 'lucide-react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import type { AppView, AuthView, CategoryId, UserTab } from './types';
+import type {
+  AdminBooking,
+  AppView,
+  AuthView,
+  CategoryId,
+  HistoryRecord,
+  UserTab,
+} from './types';
 import { AUTH_TABS, USER_NAV_ITEMS } from './constants/views';
 import Modal from './components/common/Modal';
 import PromoPopup from './components/common/PromoPopup';
@@ -24,7 +32,6 @@ import CategoryDetailPage from './pages/user/CategoryDetailPage';
 import ReservationStatusPage from './pages/user/ReservationStatusPage';
 import ContactAdminPage from './pages/user/ContactAdminPage';
 import UserProfilePage from './pages/user/UserProfilePage';
-import HistoryPage from './pages/user/HistoryPage';
 import ChangePasswordPage from './pages/user/ChangePasswordPage';
 import DashboardPage from './pages/admin/DashboardPage';
 import {
@@ -82,6 +89,70 @@ const REDIRECT_DELAY_MS = 1400;
 const PROMO_POPUP_DELAY_MS = 120;
 const PROMO_AFTER_AUTH_BUFFER_MS = 500;
 const CATEGORY_IDS: CategoryId[] = ['it', 'av', 'furniture', 'inspection'];
+const HISTORY_TIME_PATTERN = /(\d{1,2}:\d{2})/;
+const DEFAULT_PICKUP_LOCATION = 'ฝ่ายอำนวยการ';
+
+const normalizeIdentity = (value: string) => value.trim().toLowerCase();
+
+const getSortableTime = (value: string) =>
+  value.match(HISTORY_TIME_PATTERN)?.[1] ?? '';
+
+const sortBookingsNewestFirst = (left: AdminBooking, right: AdminBooking) => {
+  if (left.date !== right.date) {
+    return right.date.localeCompare(left.date);
+  }
+
+  const leftTime = getSortableTime(left.time);
+  const rightTime = getSortableTime(right.time);
+
+  if (leftTime !== rightTime) {
+    return rightTime.localeCompare(leftTime);
+  }
+
+  return right.id.localeCompare(left.id);
+};
+
+const filterBookingsForViewer = (
+  bookings: AdminBooking[],
+  currentUsername: string,
+  currentEmail: string,
+) => {
+  const viewerIdentities = [currentUsername, currentEmail]
+    .map(normalizeIdentity)
+    .filter(Boolean);
+
+  if (viewerIdentities.length === 0) {
+    return [];
+  }
+
+  return bookings.filter((booking) =>
+    viewerIdentities.includes(normalizeIdentity(booking.user)),
+  );
+};
+
+const getDisplayBookingStatus = (status: AdminBooking['status']) =>
+  status === 'รออนุมัติ' ? 'รอตรวจสอบ' : status;
+
+const formatHistoryDateTime = (dateKey: string, time: string) => {
+  const matchedTime = time.match(HISTORY_TIME_PATTERN)?.[1];
+
+  return matchedTime ? `${dateKey} ${matchedTime}` : dateKey;
+};
+
+const createHistoryRecordsFromBookings = (
+  bookings: AdminBooking[],
+): HistoryRecord[] =>
+  [...bookings].sort(sortBookingsNewestFirst).map((booking) => ({
+    id: booking.id,
+    itemName: booking.itemName,
+    details: [
+      `รหัสครุภัณฑ์: ${booking.itemId}`,
+      `จำนวนที่จอง: ${booking.requestedQuantity} ชิ้น`,
+      `สถานที่รับครุภัณฑ์: ${DEFAULT_PICKUP_LOCATION}`,
+    ],
+    status: getDisplayBookingStatus(booking.status),
+    date: formatHistoryDateTime(booking.date, booking.time),
+  }));
 
 const normalizePathname = (pathname: string) => {
   if (!pathname || pathname === '/') {
@@ -672,6 +743,122 @@ function App() {
     }, REDIRECT_DELAY_MS);
   };
 
+  const renderHistoryPage = () => {
+    const viewerBookings = filterBookingsForViewer(
+      state.adminBookings,
+      username,
+      authUser?.email ?? email,
+    );
+    const filteredBookings = state.historyDateFilter
+      ? viewerBookings.filter((booking) => booking.date === state.historyDateFilter)
+      : viewerBookings;
+    const historyItems = createHistoryRecordsFromBookings(filteredBookings);
+    const emptyMessage = state.historyDateFilter
+      ? 'ไม่พบรายการจองในวันที่เลือก'
+      : 'ยังไม่มีประวัติการจองครุภัณฑ์';
+
+    return (
+      <div className="animate-fade-up mx-auto w-full max-w-[1000px] pt-6">
+        <div className="relative mb-8 flex flex-col items-center justify-between gap-4 sm:flex-row">
+          <button
+            onClick={() => handleUserRouteChange('user')}
+            className="group flex items-center gap-2 rounded-xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] px-4 py-2.5 text-[13px] font-bold text-gray-400 transition-colors hover:border-[var(--systemhub-primary-hover)] hover:text-white sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2"
+          >
+            <ChevronLeft
+              size={16}
+              className="transition-transform group-hover:-translate-x-1"
+            />
+            กลับ
+          </button>
+          <div className="mx-auto text-center">
+            <h2 className="mb-1 text-[24px] font-black tracking-wider text-white sm:text-[28px]">
+              ประวัติการจองครุภัณฑ์
+            </h2>
+            <p className="text-[13px] font-medium tracking-widest text-gray-400">
+              ทั้งหมด {historyItems.length} รายการ
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-inner)] px-3 py-2 shadow-inner transition-colors focus-within:border-[var(--systemhub-primary-hover)] sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2">
+            <CalendarIcon size={14} className="text-[var(--systemhub-accent)]" />
+            <input
+              type="date"
+              value={state.historyDateFilter}
+              onChange={(event) => state.setHistoryDateFilter(event.target.value)}
+              style={{ colorScheme: 'dark' }}
+              className="cursor-pointer border-none bg-transparent text-[12px] font-bold text-gray-300 outline-none"
+            />
+            {state.historyDateFilter && (
+              <button
+                type="button"
+                onClick={() => state.setHistoryDateFilter('')}
+                className="ml-1 text-gray-500 hover:text-red-400"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {historyItems.length === 0 ? (
+          <div className="rounded-[1.5rem] border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] p-10 text-center text-[14px] font-bold tracking-widest text-gray-500 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+            {emptyMessage}
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-[1.5rem] border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+            <div className="hidden grid-cols-12 gap-4 border-b border-[var(--systemhub-border)] bg-[var(--systemhub-surface-table)] p-5 text-[12px] font-black uppercase tracking-widest text-gray-400 md:grid">
+              <div className="col-span-3 pl-2">ชื่อรายการ</div>
+              <div className="col-span-5">รายละเอียดการจอง</div>
+              <div className="col-span-2 text-center">สถานะ</div>
+              <div className="col-span-2 pr-2 text-right">วันที่</div>
+            </div>
+
+            <div className="divide-y divide-[rgba(27,41,71,0.6)]">
+              {historyItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="group grid grid-cols-1 items-center gap-5 p-5 transition-colors hover:bg-[rgba(21,31,51,0.5)] md:grid-cols-12 md:p-6"
+                >
+                  <div className="col-span-3 text-[14px] font-black tracking-wide text-white transition-colors group-hover:text-[var(--systemhub-accent)] md:text-[15px]">
+                    {item.itemName}
+                  </div>
+                  <div className="col-span-5">
+                    <div className="rounded-xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-inner)] p-4 text-[12px] font-medium leading-relaxed text-gray-300 shadow-inner">
+                      {item.details.map((line) => (
+                        <div key={line} className="mb-1.5 flex items-start gap-2 last:mb-0">
+                          <span className="flex-1">{line}</span>
+                          <div className="mt-0.5 rounded-[4px] bg-green-500 p-0.5 text-white shadow-[0_0_8px_rgba(34,197,94,0.4)]">
+                            <Check size={10} strokeWidth={4} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="col-span-2 flex justify-start text-center md:justify-center">
+                    <span
+                      className={`rounded-full px-4 py-1.5 text-[11px] font-bold uppercase tracking-widest ${
+                        item.status === 'จองสำเร็จ' || item.status === 'อนุมัติแล้ว'
+                          ? 'border border-green-500/20 bg-green-500/10 text-green-400'
+                          : item.status === 'ไม่อนุมัติ'
+                            ? 'border border-red-500/20 bg-red-500/10 text-red-400'
+                            : 'border border-yellow-500/20 bg-yellow-500/10 text-yellow-400'
+                      }`}
+                    >
+                      {item.status}
+                    </span>
+                  </div>
+                  <div className="col-span-2 text-left text-[12px] font-bold tracking-wider text-gray-500 md:text-right">
+                    {item.date}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderAuthPage = () => {
     if (!currentRoute || currentRoute.kind !== 'auth') {
       return null;
@@ -793,14 +980,7 @@ function App() {
           />
         );
       case 'history':
-        return (
-          <HistoryPage
-            filter={state.historyDateFilter}
-            onFilterChange={(value) => state.setHistoryDateFilter(value)}
-            onClearFilter={() => state.setHistoryDateFilter('')}
-            onBack={() => handleUserRouteChange('user')}
-          />
-        );
+        return renderHistoryPage();
       case 'change_password':
         return (
           <ChangePasswordPage
