@@ -1,6 +1,8 @@
-import { useEffect, useState, type SetStateAction } from 'react';
+﻿import { useEffect, useState, type SetStateAction } from 'react';
 import { APP_DATA_STORAGE_KEY, appDataStore } from '../lib/appDataStore';
 import type { AppDataSnapshot, AppState } from '../types';
+
+const REMOTE_SYNC_INTERVAL_MS = 30000;
 
 const resolveSliceUpdate = <T,>(
   current: T,
@@ -93,6 +95,29 @@ export const useAppState = (): AppState => {
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
+
+  useEffect(() => {
+    if (!isAppDataReady) {
+      return () => undefined;
+    }
+
+    let isMounted = true;
+
+    const syncRemoteState = () => {
+      void appDataStore.loadSnapshot().then((snapshot) => {
+        if (isMounted) {
+          setAppData(snapshot);
+        }
+      });
+    };
+
+    const intervalId = window.setInterval(syncRemoteState, REMOTE_SYNC_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, [isAppDataReady]);
 
   const setAdminBookings: AppState['setAdminBookings'] = (nextValue) => {
     setAppData((current) => ({

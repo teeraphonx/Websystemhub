@@ -1,4 +1,4 @@
-import { initialAdminBookings } from '../data/adminBookings';
+﻿import { initialAdminBookings } from '../data/adminBookings';
 import { categoryItems as seedCategoryItems } from '../data/categoryItems';
 import type {
   AdminBooking,
@@ -7,6 +7,8 @@ import type {
   CategoryId,
   CategoryItemsMap,
 } from '../types';
+import { fetchContactNotifications } from './contactNotificationsApi';
+import { fetchCategoryItemsFromApi } from './equipmentApi';
 
 export interface AppDataStore {
   requiresHydration: boolean;
@@ -17,13 +19,13 @@ export interface AppDataStore {
 }
 
 type PersistedAppDataSnapshot = {
-  version: 1;
+  version: 2;
   adminBookings: AdminBooking[];
   adminNotifications: AdminNotification[];
   categoryStockByItemId: Record<string, number>;
 };
 
-export const APP_DATA_STORAGE_KEY = 'systemhub-app-data-v1';
+export const APP_DATA_STORAGE_KEY = 'systemhub-app-data-v2';
 
 const cloneCategoryItems = (categoryItems: CategoryItemsMap): CategoryItemsMap =>
   Object.fromEntries(
@@ -35,6 +37,26 @@ const cloneCategoryItems = (categoryItems: CategoryItemsMap): CategoryItemsMap =
     ),
   ) as CategoryItemsMap;
 
+const mergeAdminNotifications = (
+  ...groups: AdminNotification[][]
+): AdminNotification[] => {
+  const mergedNotifications: AdminNotification[] = [];
+  const seenIds = new Set<string>();
+
+  for (const group of groups) {
+    for (const notification of group) {
+      if (seenIds.has(notification.id)) {
+        continue;
+      }
+
+      seenIds.add(notification.id);
+      mergedNotifications.push({ ...notification });
+    }
+  }
+
+  return mergedNotifications;
+};
+
 const cloneSnapshot = (snapshot: AppDataSnapshot): AppDataSnapshot => ({
   adminBookings: snapshot.adminBookings.map((booking) => ({ ...booking })),
   adminNotifications: snapshot.adminNotifications.map((notification) => ({
@@ -42,34 +64,6 @@ const cloneSnapshot = (snapshot: AppDataSnapshot): AppDataSnapshot => ({
   })),
   categoryItems: cloneCategoryItems(snapshot.categoryItems),
 });
-
-const createSeedCategoryItems = (): CategoryItemsMap => {
-  const clonedItems = cloneCategoryItems(seedCategoryItems);
-
-  initialAdminBookings.forEach((booking) => {
-    if (booking.status === 'ไม่อนุมัติ') {
-      return;
-    }
-
-    for (const categoryId of Object.keys(clonedItems) as CategoryId[]) {
-      const matchedItem = clonedItems[categoryId].find(
-        (item) => item.equipId === booking.itemId,
-      );
-
-      if (!matchedItem) {
-        continue;
-      }
-
-      matchedItem.stock = Math.max(
-        matchedItem.stock - booking.availableQuantity,
-        0,
-      );
-      break;
-    }
-  });
-
-  return clonedItems;
-};
 
 const createCategoryStockByItemId = (
   categoryItems: CategoryItemsMap,
@@ -83,9 +77,10 @@ const createCategoryStockByItemId = (
   );
 
 const createCategoryItemsFromPersistedStock = (
+  baseCategoryItems: CategoryItemsMap,
   categoryStockByItemId: Record<string, number>,
 ): CategoryItemsMap => {
-  const clonedItems = cloneCategoryItems(seedCategoryItems);
+  const clonedItems = cloneCategoryItems(baseCategoryItems);
 
   for (const categoryId of Object.keys(clonedItems) as CategoryId[]) {
     clonedItems[categoryId] = clonedItems[categoryId].map((item) => ({
@@ -97,13 +92,13 @@ const createCategoryItemsFromPersistedStock = (
   return clonedItems;
 };
 
-export const createSeedAppDataSnapshot = (): AppDataSnapshot => ({
+const createBootstrapSnapshot = (): AppDataSnapshot => ({
   adminBookings: initialAdminBookings.map((booking) => ({ ...booking })),
   adminNotifications: [],
-  categoryItems: createSeedCategoryItems(),
+  categoryItems: cloneCategoryItems(seedCategoryItems),
 });
 
-const readPersistedSnapshot = (): AppDataSnapshot | null => {
+const readPersistedSnapshot = (): PersistedAppDataSnapshot | null => {
   if (typeof window === 'undefined') {
     return null;
   }
@@ -118,7 +113,7 @@ const readPersistedSnapshot = (): AppDataSnapshot | null => {
     const parsedValue = JSON.parse(rawValue) as Partial<PersistedAppDataSnapshot>;
 
     if (
-      parsedValue.version !== 1 ||
+      parsedValue.version !== 2 ||
       !Array.isArray(parsedValue.adminBookings) ||
       !Array.isArray(parsedValue.adminNotifications) ||
       typeof parsedValue.categoryStockByItemId !== 'object' ||
@@ -128,13 +123,14 @@ const readPersistedSnapshot = (): AppDataSnapshot | null => {
     }
 
     return {
+      version: 2,
       adminBookings: parsedValue.adminBookings.map((booking) => ({ ...booking })),
       adminNotifications: parsedValue.adminNotifications.map((notification) => ({
         ...notification,
       })),
-      categoryItems: createCategoryItemsFromPersistedStock(
-        parsedValue.categoryStockByItemId as Record<string, number>,
-      ),
+      categoryStockByItemId: {
+        ...(parsedValue.categoryStockByItemId as Record<string, number>),
+      },
     };
   } catch {
     return null;
@@ -147,7 +143,7 @@ const persistSnapshot = (snapshot: AppDataSnapshot) => {
   }
 
   const payload: PersistedAppDataSnapshot = {
-    version: 1,
+    version: 2,
     adminBookings: snapshot.adminBookings.map((booking) => ({ ...booking })),
     adminNotifications: snapshot.adminNotifications.map((notification) => ({
       ...notification,
@@ -158,17 +154,84 @@ const persistSnapshot = (snapshot: AppDataSnapshot) => {
   window.localStorage.setItem(APP_DATA_STORAGE_KEY, JSON.stringify(payload));
 };
 
-const createPersistentAppDataStore = (): AppDataStore => {
-  let currentSnapshot = readPersistedSnapshot() ?? createSeedAppDataSnapshot();
+const buildRemoteBackedSnapshot = async (): Promise<AppDataSnapshot> => {
+  const persistedSnapshot = readPersistedSnapshot();
+  const [categoryItemsResult, contactNotificationsResult] = await Promise.allSettled([
+    fetchCategoryItemsFromApi(),
+    fetchContactNotifications(),
+  ]);
+
+  if (categoryItemsResult.status === 'rejected') {
+    console.error(
+      'Failed to load category items from API. Falling back to local seed data.',
+      categoryItemsResult.reason,
+    );
+  }
+
+  if (contactNotificationsResult.status === 'rejected') {
+    console.error(
+      'Failed to load contact notifications from API. Falling back to persisted notifications.',
+      contactNotificationsResult.reason,
+    );
+  }
+
+  const remoteCategoryItems =
+    categoryItemsResult.status === 'fulfilled'
+      ? categoryItemsResult.value
+      : cloneCategoryItems(seedCategoryItems);
+  const remoteContactNotifications =
+    contactNotificationsResult.status === 'fulfilled'
+      ? contactNotificationsResult.value
+      : [];
+
+  if (!persistedSnapshot) {
+    return {
+      adminBookings: initialAdminBookings.map((booking) => ({ ...booking })),
+      adminNotifications: remoteContactNotifications,
+      categoryItems: remoteCategoryItems,
+    };
+  }
 
   return {
-    requiresHydration: false,
-    getBootstrapSnapshot: () => {
-      currentSnapshot = readPersistedSnapshot() ?? currentSnapshot;
-      return cloneSnapshot(currentSnapshot);
-    },
+    adminBookings: persistedSnapshot.adminBookings.map((booking) => ({ ...booking })),
+    adminNotifications: mergeAdminNotifications(
+      remoteContactNotifications,
+      persistedSnapshot.adminNotifications,
+    ),
+    categoryItems: createCategoryItemsFromPersistedStock(
+      remoteCategoryItems,
+      persistedSnapshot.categoryStockByItemId,
+    ),
+  };
+};
+
+const createPersistentAppDataStore = (): AppDataStore => {
+  let currentSnapshot = createBootstrapSnapshot();
+
+  return {
+    requiresHydration: true,
+    getBootstrapSnapshot: () => cloneSnapshot(currentSnapshot),
     loadSnapshot: async () => {
-      currentSnapshot = readPersistedSnapshot() ?? currentSnapshot;
+      try {
+        currentSnapshot = await buildRemoteBackedSnapshot();
+      } catch (error) {
+        console.error('Failed to hydrate app data from API.', error);
+
+        const persistedSnapshot = readPersistedSnapshot();
+        if (persistedSnapshot) {
+          currentSnapshot = {
+            adminBookings: persistedSnapshot.adminBookings.map((booking) => ({ ...booking })),
+            adminNotifications: persistedSnapshot.adminNotifications.map((notification) => ({
+              ...notification,
+            })),
+            categoryItems: createCategoryItemsFromPersistedStock(
+              cloneCategoryItems(seedCategoryItems),
+              persistedSnapshot.categoryStockByItemId,
+            ),
+          };
+        }
+      }
+
       return cloneSnapshot(currentSnapshot);
     },
     saveSnapshot: async (snapshot) => {
@@ -176,12 +239,11 @@ const createPersistentAppDataStore = (): AppDataStore => {
       persistSnapshot(currentSnapshot);
     },
     resetSnapshot: async () => {
-      currentSnapshot = createSeedAppDataSnapshot();
+      currentSnapshot = await buildRemoteBackedSnapshot().catch(() => createBootstrapSnapshot());
       persistSnapshot(currentSnapshot);
       return cloneSnapshot(currentSnapshot);
     },
   };
 };
 
-// Swap this store with a Firebase/Firestore-backed adapter later.
 export const appDataStore = createPersistentAppDataStore();

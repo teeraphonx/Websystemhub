@@ -41,11 +41,17 @@ export default function CategoryDetailPage({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {items.map((item) => (
-          <EquipmentCard key={item.id} item={item} onReserve={onReserve} />
-        ))}
-      </div>
+      {items.length > 0 ? (
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {items.map((item) => (
+            <EquipmentCard key={item.id} item={item} onReserve={onReserve} />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-[1.5rem] border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] p-10 text-center text-[14px] font-bold tracking-widest text-gray-500 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+          ยังไม่พบครุภัณฑ์ในหมวดนี้จากฐานข้อมูล
+        </div>
+      )}
     </div>
   );
 }

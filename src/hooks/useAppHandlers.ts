@@ -1,13 +1,15 @@
-import type {
+﻿import type {
   AdminBooking,
   AdminBookingStatus,
   AppState,
   CategoryId,
   CategoryItemsMap,
   CalendarDayType,
+  ContactAdminSubmission,
   EquipmentItem,
   UserTab,
 } from '../types';
+import { markAllContactNotificationsRead, submitContactNotification } from '../lib/contactNotificationsApi';
 import { createSuccessModal, createWarningModal } from '../utils/modal';
 
 const AUTO_CLOSE_MS = 1400;
@@ -460,13 +462,19 @@ export const useAppHandlers = (state: AppState) => {
     }
   };
 
-  const handleMarkAllAdminNotificationsRead = () => {
+  const handleMarkAllAdminNotificationsRead = async () => {
     state.setAdminNotifications((notifications) =>
       notifications.map((notification) => ({
         ...notification,
         isRead: true,
       })),
     );
+
+    try {
+      await markAllContactNotificationsRead();
+    } catch (error) {
+      console.error('Failed to sync read notifications to backend.', error);
+    }
   };
 
   const handlePasswordChangeSuccess = () => {
@@ -483,14 +491,50 @@ export const useAppHandlers = (state: AppState) => {
     state.setModalState(createWarningModal('แจ้งเตือน', message));
   };
 
-  const handleContactSuccess = () => {
-    state.setModalState(
-      createSuccessModal(
-        'ส่งข้อความสำเร็จ',
-        'ผู้ดูแลระบบจะรีบดำเนินการตรวจสอบและติดต่อกลับ',
-      ),
-    );
-    window.setTimeout(closeModal, 1800);
+  const handleContactSuccess = async ({
+    subject,
+    message,
+  }: ContactAdminSubmission) => {
+    const trimmedSubject = subject.trim();
+    const trimmedMessage = message.trim();
+
+    if (!trimmedSubject || !trimmedMessage) {
+      state.setModalState(
+        createWarningModal('แจ้งเตือน', 'กรุณากรอกหัวข้อและรายละเอียดให้ครบถ้วน'),
+      );
+      return false;
+    }
+
+    try {
+      const notification = await submitContactNotification({
+        subject: trimmedSubject,
+        message: trimmedMessage,
+        senderName: state.username.trim() || undefined,
+        senderEmail: state.email.trim() || undefined,
+      });
+
+      state.setAdminNotifications((notifications) => [
+        notification,
+        ...notifications.filter((current) => current.id !== notification.id),
+      ]);
+      state.setModalState(
+        createSuccessModal(
+          'ส่งข้อความสำเร็จ',
+          'ข้อความของคุณถูกส่งไปยังการแจ้งเตือนของผู้ดูแลแล้ว',
+        ),
+      );
+      window.setTimeout(closeModal, 1800);
+      return true;
+    } catch (error) {
+      console.error('Failed to submit contact message.', error);
+      state.setModalState(
+        createWarningModal(
+          'ส่งข้อความไม่สำเร็จ',
+          'ไม่สามารถส่งข้อความถึงผู้ดูแลได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
+        ),
+      );
+      return false;
+    }
   };
 
   const handlePrevMonth = () => {
@@ -540,3 +584,6 @@ export const useAppHandlers = (state: AppState) => {
     handleSelectAdminDate,
   };
 };
+
+
+

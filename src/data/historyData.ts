@@ -1,6 +1,6 @@
 ﻿import type { HistoryRecord } from '../types';
 
-export const mockHistoryData: HistoryRecord[] = [
+export const historyData: HistoryRecord[] = [
   {
     id: 'RSV-20240312-01',
     itemName: 'MacBook Pro M3',

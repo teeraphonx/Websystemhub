@@ -1,7 +1,7 @@
 ﻿import { Laptop, Truck } from 'lucide-react';
 import type { ActiveStatusRecord } from '../types';
 
-export const mockActiveStatus: ActiveStatusRecord[] = [
+export const activeStatus: ActiveStatusRecord[] = [
   {
     id: 'RSV-20260313-08',
     itemName: 'MacBook Pro M3',

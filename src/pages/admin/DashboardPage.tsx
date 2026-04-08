@@ -1,4 +1,4 @@
-import {
+﻿import {
   Bell,
   CalendarDays,
   CheckCircle,
@@ -198,7 +198,7 @@ export default function DashboardPage({
                         การแจ้งเตือน
                       </p>
                       <p className="mt-1 text-[11px] text-gray-500">
-                        แจ้งเตือนล่าสุดจากคำขอจองของผู้ใช้งาน
+                        แจ้งเตือนล่าสุดจากคำขอจองและข้อความจากผู้ใช้งาน
                       </p>
                     </div>
                     {unreadNotificationCount > 0 && (

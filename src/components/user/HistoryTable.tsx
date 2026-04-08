@@ -3,13 +3,17 @@ import type { HistoryRecord } from '../../types';
 
 interface HistoryTableProps {
   items: HistoryRecord[];
+  emptyMessage?: string;
 }
 
-export default function HistoryTable({ items }: HistoryTableProps) {
+export default function HistoryTable({
+  items,
+  emptyMessage = 'ไม่พบรายการจองในวันที่เลือก',
+}: HistoryTableProps) {
   if (items.length === 0) {
     return (
-      <div className="p-10 text-center text-gray-500 font-bold text-[14px] tracking-widest">
-        ไม่พบรายการจองในวันที่เลือก
+      <div className="bg-[var(--systemhub-surface-card)] border border-[var(--systemhub-border)] rounded-[1.5rem] p-10 text-center text-gray-500 font-bold text-[14px] tracking-widest shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+        {emptyMessage}
       </div>
     );
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEventHandler } from 'react';
+﻿import { useEffect, useState, type FormEventHandler } from 'react';
 import {
   createUserWithEmailAndPassword,
   deleteUser,
@@ -8,7 +8,6 @@ import {
   signOut as firebaseSignOut,
   type User as FirebaseUser,
 } from 'firebase/auth';
-import { Calendar as CalendarIcon, Check, ChevronLeft, X } from 'lucide-react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import type {
   AdminBooking,
@@ -18,6 +17,7 @@ import type {
   HistoryRecord,
   UserTab,
 } from './types';
+import { historyData } from './data/historyData';
 import { AUTH_TABS, USER_NAV_ITEMS } from './constants/views';
 import Modal from './components/common/Modal';
 import PromoPopup from './components/common/PromoPopup';
@@ -33,6 +33,7 @@ import ReservationStatusPage from './pages/user/ReservationStatusPage';
 import ContactAdminPage from './pages/user/ContactAdminPage';
 import UserProfilePage from './pages/user/UserProfilePage';
 import ChangePasswordPage from './pages/user/ChangePasswordPage';
+import HistoryPage from './pages/user/HistoryPage';
 import DashboardPage from './pages/admin/DashboardPage';
 import {
   getAdminAuth,
@@ -743,121 +744,26 @@ function App() {
     }, REDIRECT_DELAY_MS);
   };
 
-  const renderHistoryPage = () => {
-    const viewerBookings = filterBookingsForViewer(
-      state.adminBookings,
-      username,
-      authUser?.email ?? email,
-    );
-    const filteredBookings = state.historyDateFilter
-      ? viewerBookings.filter((booking) => booking.date === state.historyDateFilter)
-      : viewerBookings;
-    const historyItems = createHistoryRecordsFromBookings(filteredBookings);
-    const emptyMessage = state.historyDateFilter
-      ? 'ไม่พบรายการจองในวันที่เลือก'
-      : 'ยังไม่มีประวัติการจองครุภัณฑ์';
-
-    return (
-      <div className="animate-fade-up mx-auto w-full max-w-[1000px] pt-6">
-        <div className="relative mb-8 flex flex-col items-center justify-between gap-4 sm:flex-row">
-          <button
-            onClick={() => handleUserRouteChange('user')}
-            className="group flex items-center gap-2 rounded-xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] px-4 py-2.5 text-[13px] font-bold text-gray-400 transition-colors hover:border-[var(--systemhub-primary-hover)] hover:text-white sm:absolute sm:left-0 sm:top-1/2 sm:-translate-y-1/2"
-          >
-            <ChevronLeft
-              size={16}
-              className="transition-transform group-hover:-translate-x-1"
-            />
-            กลับ
-          </button>
-          <div className="mx-auto text-center">
-            <h2 className="mb-1 text-[24px] font-black tracking-wider text-white sm:text-[28px]">
-              ประวัติการจองครุภัณฑ์
-            </h2>
-            <p className="text-[13px] font-medium tracking-widest text-gray-400">
-              ทั้งหมด {historyItems.length} รายการ
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 rounded-xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-inner)] px-3 py-2 shadow-inner transition-colors focus-within:border-[var(--systemhub-primary-hover)] sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2">
-            <CalendarIcon size={14} className="text-[var(--systemhub-accent)]" />
-            <input
-              type="date"
-              value={state.historyDateFilter}
-              onChange={(event) => state.setHistoryDateFilter(event.target.value)}
-              style={{ colorScheme: 'dark' }}
-              className="cursor-pointer border-none bg-transparent text-[12px] font-bold text-gray-300 outline-none"
-            />
-            {state.historyDateFilter && (
-              <button
-                type="button"
-                onClick={() => state.setHistoryDateFilter('')}
-                className="ml-1 text-gray-500 hover:text-red-400"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {historyItems.length === 0 ? (
-          <div className="rounded-[1.5rem] border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] p-10 text-center text-[14px] font-bold tracking-widest text-gray-500 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-            {emptyMessage}
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-[1.5rem] border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-            <div className="hidden grid-cols-12 gap-4 border-b border-[var(--systemhub-border)] bg-[var(--systemhub-surface-table)] p-5 text-[12px] font-black uppercase tracking-widest text-gray-400 md:grid">
-              <div className="col-span-3 pl-2">ชื่อรายการ</div>
-              <div className="col-span-5">รายละเอียดการจอง</div>
-              <div className="col-span-2 text-center">สถานะ</div>
-              <div className="col-span-2 pr-2 text-right">วันที่</div>
-            </div>
-
-            <div className="divide-y divide-[rgba(27,41,71,0.6)]">
-              {historyItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="group grid grid-cols-1 items-center gap-5 p-5 transition-colors hover:bg-[rgba(21,31,51,0.5)] md:grid-cols-12 md:p-6"
-                >
-                  <div className="col-span-3 text-[14px] font-black tracking-wide text-white transition-colors group-hover:text-[var(--systemhub-accent)] md:text-[15px]">
-                    {item.itemName}
-                  </div>
-                  <div className="col-span-5">
-                    <div className="rounded-xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-inner)] p-4 text-[12px] font-medium leading-relaxed text-gray-300 shadow-inner">
-                      {item.details.map((line) => (
-                        <div key={line} className="mb-1.5 flex items-start gap-2 last:mb-0">
-                          <span className="flex-1">{line}</span>
-                          <div className="mt-0.5 rounded-[4px] bg-green-500 p-0.5 text-white shadow-[0_0_8px_rgba(34,197,94,0.4)]">
-                            <Check size={10} strokeWidth={4} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="col-span-2 flex justify-start text-center md:justify-center">
-                    <span
-                      className={`rounded-full px-4 py-1.5 text-[11px] font-bold uppercase tracking-widest ${
-                        item.status === 'จองสำเร็จ' || item.status === 'อนุมัติแล้ว'
-                          ? 'border border-green-500/20 bg-green-500/10 text-green-400'
-                          : item.status === 'ไม่อนุมัติ'
-                            ? 'border border-red-500/20 bg-red-500/10 text-red-400'
-                            : 'border border-yellow-500/20 bg-yellow-500/10 text-yellow-400'
-                      }`}
-                    >
-                      {item.status}
-                    </span>
-                  </div>
-                  <div className="col-span-2 text-left text-[12px] font-bold tracking-wider text-gray-500 md:text-right">
-                    {item.date}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
+  const viewerBookings = filterBookingsForViewer(
+    state.adminBookings,
+    username,
+    authUser?.email ?? email,
+  );
+  const sourceHistoryItems =
+    viewerBookings.length > 0
+      ? createHistoryRecordsFromBookings(viewerBookings)
+      : [...historyData].sort(
+          (left, right) =>
+            new Date(right.date).getTime() - new Date(left.date).getTime(),
+        );
+  const historyItems = state.historyDateFilter
+    ? sourceHistoryItems.filter(
+        (item) => item.date.slice(0, 10) === state.historyDateFilter,
+      )
+    : sourceHistoryItems;
+  const historyEmptyMessage = state.historyDateFilter
+    ? 'ไม่พบรายการจองในวันที่เลือก'
+    : 'ยังไม่มีประวัติการจองครุภัณฑ์';
 
   const renderAuthPage = () => {
     if (!currentRoute || currentRoute.kind !== 'auth') {
@@ -980,7 +886,16 @@ function App() {
           />
         );
       case 'history':
-        return renderHistoryPage();
+        return (
+          <HistoryPage
+            filter={state.historyDateFilter}
+            items={historyItems}
+            emptyMessage={historyEmptyMessage}
+            onFilterChange={state.setHistoryDateFilter}
+            onClearFilter={() => state.setHistoryDateFilter('')}
+            onBack={() => handleUserRouteChange('user')}
+          />
+        );
       case 'change_password':
         return (
           <ChangePasswordPage
@@ -1138,3 +1053,6 @@ function App() {
 }
 
 export default App;
+
+
+

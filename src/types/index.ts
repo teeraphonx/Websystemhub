@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
+﻿import type { Dispatch, SetStateAction } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 export type AuthView = 'login' | 'register' | 'forgot-password' | 'admin';
@@ -96,6 +96,11 @@ export interface AdminNotification {
   isRead: boolean;
 }
 
+export interface ContactAdminSubmission {
+  subject: string;
+  message: string;
+}
+
 export interface AppDataSnapshot {
   adminBookings: AdminBooking[];
   adminNotifications: AdminNotification[];
@@ -161,3 +166,4 @@ export interface AppState {
   categoryItems: CategoryItemsMap;
   setCategoryItems: Dispatch<SetStateAction<CategoryItemsMap>>;
 }
+
