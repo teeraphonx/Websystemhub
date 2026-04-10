@@ -750,7 +750,10 @@ function App() {
     username,
     authUser?.email ?? email,
   );
-  const sourceHistoryItems = createHistoryRecordsFromBookings(viewerBookings);
+  const approvedViewerBookings = viewerBookings.filter(
+    (booking) => booking.status === 'อนุมัติแล้ว',
+  );
+  const sourceHistoryItems = createHistoryRecordsFromBookings(approvedViewerBookings);
   const historyItems = state.historyDateFilter
     ? sourceHistoryItems.filter(
         (item) => item.date.slice(0, 10) === state.historyDateFilter,
@@ -758,7 +761,7 @@ function App() {
     : sourceHistoryItems;
   const historyEmptyMessage = state.historyDateFilter
     ? 'ไม่พบรายการจองในวันที่เลือก'
-    : 'ยังไม่มีประวัติการจองครุภัณฑ์';
+    : 'ยังไม่มีประวัติการจองที่แอดมินอนุมัติแล้ว';
 
   const renderAuthPage = () => {
     if (!currentRoute || currentRoute.kind !== 'auth') {
