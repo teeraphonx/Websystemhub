@@ -67,7 +67,9 @@ export default function ReservationStatusPage({
   const visibleBookings =
     viewerIdentities.length > 0
       ? bookings.filter((booking) =>
-          viewerIdentities.includes(normalizeIdentity(booking.user)),
+          [booking.user, booking.userEmail ?? ''].some((identity) =>
+            viewerIdentities.includes(normalizeIdentity(identity)),
+          ),
         )
       : bookings;
   const sortedBookings = [...visibleBookings].sort((left, right) => {
