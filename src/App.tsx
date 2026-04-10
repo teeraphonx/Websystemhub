@@ -17,7 +17,6 @@ import type {
   HistoryRecord,
   UserTab,
 } from './types';
-import { historyData } from './data/historyData';
 import { AUTH_TABS, USER_NAV_ITEMS } from './constants/views';
 import Modal from './components/common/Modal';
 import PromoPopup from './components/common/PromoPopup';
@@ -749,13 +748,7 @@ function App() {
     username,
     authUser?.email ?? email,
   );
-  const sourceHistoryItems =
-    viewerBookings.length > 0
-      ? createHistoryRecordsFromBookings(viewerBookings)
-      : [...historyData].sort(
-          (left, right) =>
-            new Date(right.date).getTime() - new Date(left.date).getTime(),
-        );
+  const sourceHistoryItems = createHistoryRecordsFromBookings(viewerBookings);
   const historyItems = state.historyDateFilter
     ? sourceHistoryItems.filter(
         (item) => item.date.slice(0, 10) === state.historyDateFilter,
