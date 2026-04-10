@@ -170,6 +170,47 @@ function mapEquipmentItem(equipment: BackendEquipment): EquipmentItem {
   };
 }
 
+function normalizeGroupKey(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function createGroupedEquipmentItems(items: EquipmentItem[]): EquipmentItem[] {
+  const groupedItems = new Map<
+    string,
+    EquipmentItem & { baseSub: string; groupedCount: number }
+  >();
+
+  for (const item of items) {
+    const groupKey = normalizeGroupKey(item.name);
+    const existingItem = groupedItems.get(groupKey);
+
+    if (!existingItem) {
+      groupedItems.set(groupKey, { ...item, baseSub: item.sub, groupedCount: 1 });
+      continue;
+    }
+
+    const nextGroupedCount = existingItem.groupedCount + 1;
+    const nextStock = existingItem.stock + item.stock;
+    groupedItems.set(groupKey, {
+      ...existingItem,
+      stock: nextStock,
+      tag: nextStock > 0 ? existingItem.tag.replace('OUT', '') : 'OUT',
+      sub: `รวม ${nextGroupedCount} รายการ • ${existingItem.baseSub}`,
+      equipId:
+        nextGroupedCount === 2
+          ? `${existingItem.equipId} +1 รหัส`
+          : existingItem.equipId.replace(/\+\d+ รหัส$/, `+${nextGroupedCount - 1} รหัส`),
+      groupedCount: nextGroupedCount,
+    });
+  }
+
+  return [...groupedItems.values()].map(({
+    baseSub: _baseSub,
+    groupedCount: _groupedCount,
+    ...item
+  }) => item);
+}
+
 async function fetchEquipmentPage(offset: number) {
   return apiFetch<EquipmentSummaryResponse>(
     `/api/equipment?view=summary&limit=${EQUIPMENT_PAGE_SIZE}&offset=${offset}`,
@@ -196,10 +237,15 @@ export async function fetchCategoryItemsFromApi(): Promise<CategoryItemsMap> {
     return accumulator;
   }, createEmptyCategoryItems());
 
+  const sortByName = (items: EquipmentItem[]) =>
+    createGroupedEquipmentItems(items).sort((left, right) =>
+      left.name.localeCompare(right.name, 'th'),
+    );
+
   return {
-    it: mappedCategoryItems.it.sort((left, right) => left.name.localeCompare(right.name, 'th')),
-    av: mappedCategoryItems.av.sort((left, right) => left.name.localeCompare(right.name, 'th')),
-    furniture: mappedCategoryItems.furniture.sort((left, right) => left.name.localeCompare(right.name, 'th')),
-    inspection: mappedCategoryItems.inspection.sort((left, right) => left.name.localeCompare(right.name, 'th')),
+    it: sortByName(mappedCategoryItems.it),
+    av: sortByName(mappedCategoryItems.av),
+    furniture: sortByName(mappedCategoryItems.furniture),
+    inspection: sortByName(mappedCategoryItems.inspection),
   };
 }
