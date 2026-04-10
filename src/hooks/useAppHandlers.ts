@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AdminBooking,
   AdminBookingStatus,
   AppState,
@@ -9,6 +9,11 @@
   EquipmentItem,
   UserTab,
 } from '../types';
+import {
+  submitBookingRequest,
+  updateBookingRequestAvailableQuantity,
+  updateBookingRequestStatus,
+} from '../lib/bookingRequestsApi';
 import { markAllContactNotificationsRead, submitContactNotification } from '../lib/contactNotificationsApi';
 import { createSuccessModal, createWarningModal } from '../utils/modal';
 
@@ -42,18 +47,6 @@ const createCalendarDateFromDateKey = (dateKey: string) => {
   const [year, month, day] = dateKey.split('-').map(Number);
 
   return new Date(year, month - 1, day);
-};
-
-const createUserAvatar = (label: string) => {
-  const initials = label
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join('');
-
-  return initials || 'US';
 };
 
 const findInventoryEntry = (
@@ -188,7 +181,7 @@ export const useAppHandlers = (state: AppState) => {
     }
   };
 
-  const handleReserveItem = (item: EquipmentItem) => {
+  const handleReserveItem = async (item: EquipmentItem) => {
     if (item.stock <= 0) {
       state.setModalState(
         createWarningModal(
@@ -202,21 +195,36 @@ export const useAppHandlers = (state: AppState) => {
     const now = new Date();
     const requesterName =
       state.username.trim() || state.email.trim() || 'ผู้ใช้งานระบบ';
-    const nextBookingId = String(Date.now());
-    const nextBooking: AdminBooking = {
-      id: nextBookingId,
-      user: requesterName,
-      userAvatar: createUserAvatar(requesterName),
-      itemId: item.equipId,
-      itemName: item.name,
-      time: `${thaiTimeFormatter.format(now)} น.`,
-      date: createBangkokDateKey(now),
-      requestedQuantity: 1,
-      availableQuantity: 1,
-      status: 'รออนุมัติ',
-    };
+    const requesterEmail = state.email.trim() || undefined;
+    const requestedDate = createBangkokDateKey(now);
+    const requestedTime = `${thaiTimeFormatter.format(now)} น.`;
+    let nextBooking: AdminBooking;
 
-    state.setAdminBookings((bookings) => [nextBooking, ...bookings]);
+    try {
+      nextBooking = await submitBookingRequest({
+        requesterName,
+        requesterEmail,
+        item,
+        requestedDate,
+        requestedTime,
+        requestedQuantity: 1,
+        availableQuantity: 1,
+      });
+    } catch (error) {
+      console.error('Failed to submit booking request.', error);
+      state.setModalState(
+        createWarningModal(
+          'ทำรายการไม่สำเร็จ',
+          'ไม่สามารถบันทึกคำขอจองไปยังระบบกลางได้ กรุณาลองใหม่อีกครั้ง',
+        ),
+      );
+      return;
+    }
+
+    state.setAdminBookings((bookings) => [
+      nextBooking,
+      ...bookings.filter((booking) => booking.id !== nextBooking.id),
+    ]);
     state.setCategoryItems((categoryItems) =>
       updateInventoryStock(
         categoryItems,
@@ -228,14 +236,14 @@ export const useAppHandlers = (state: AppState) => {
     state.setAdminCalendarView(createCalendarDateFromDateKey(nextBooking.date));
     state.setAdminNotifications((notifications) => [
       {
-        id: `notif-${nextBookingId}`,
-        bookingId: nextBookingId,
+        id: `booking-${nextBooking.id}`,
+        bookingId: nextBooking.id,
         title: 'มีคำขอจองใหม่',
         desc: `${requesterName} จอง ${item.name}`,
         time: thaiTimeFormatter.format(now),
         isRead: false,
       },
-      ...notifications,
+      ...notifications.filter((notification) => notification.id !== `booking-${nextBooking.id}`),
     ]);
     state.setTotalReservations((count) => count + 1);
     state.setUserReservations((count) => count + 1);
@@ -247,6 +255,16 @@ export const useAppHandlers = (state: AppState) => {
     );
 
     window.setTimeout(closeModal, AUTO_CLOSE_MS);
+  };
+
+  const syncBookingStatus = (
+    id: string,
+    status: AdminBookingStatus,
+    availableQuantity: number,
+  ) => {
+    void updateBookingRequestStatus(id, { status, availableQuantity }).catch((error) => {
+      console.error('Failed to sync booking status to backend.', error);
+    });
   };
 
   const handleUpdateBookingStatus = (
@@ -276,6 +294,7 @@ export const useAppHandlers = (state: AppState) => {
             booking.id === id ? { ...booking, status: newStatus } : booking,
           ),
         );
+        syncBookingStatus(id, newStatus, targetBooking.availableQuantity);
         state.setModalState(
           createSuccessModal(
             'ทำรายการสำเร็จ',
@@ -319,6 +338,7 @@ export const useAppHandlers = (state: AppState) => {
           -approvedQuantity,
         ),
       );
+      syncBookingStatus(id, newStatus, approvedQuantity);
       state.setModalState(
         createSuccessModal(
           'ทำรายการสำเร็จ',
@@ -345,6 +365,7 @@ export const useAppHandlers = (state: AppState) => {
           targetBooking.availableQuantity,
         ),
       );
+      syncBookingStatus(id, newStatus, targetBooking.availableQuantity);
       state.setModalState(
         createSuccessModal(
           'ทำรายการสำเร็จ',
@@ -392,6 +413,7 @@ export const useAppHandlers = (state: AppState) => {
           -reservedQuantity,
         ),
       );
+      syncBookingStatus(id, newStatus, reservedQuantity);
       state.setModalState(
         createSuccessModal(
           'ทำรายการสำเร็จ',
@@ -407,6 +429,7 @@ export const useAppHandlers = (state: AppState) => {
         booking.id === id ? { ...booking, status: newStatus } : booking,
       ),
     );
+    syncBookingStatus(id, newStatus, targetBooking.availableQuantity);
     state.setModalState(
       createSuccessModal(
         'ทำรายการสำเร็จ',
@@ -460,6 +483,10 @@ export const useAppHandlers = (state: AppState) => {
         ),
       );
     }
+
+    void updateBookingRequestAvailableQuantity(id, normalizedQuantity).catch((error) => {
+      console.error('Failed to sync booking quantity to backend.', error);
+    });
   };
 
   const handleMarkAllAdminNotificationsRead = async () => {
@@ -584,6 +611,3 @@ export const useAppHandlers = (state: AppState) => {
     handleSelectAdminDate,
   };
 };
-
-
-

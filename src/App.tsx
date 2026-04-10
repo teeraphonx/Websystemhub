@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, type FormEventHandler } from 'react';
+import { useEffect, useState, type FormEventHandler } from 'react';
 import {
   createUserWithEmailAndPassword,
   deleteUser,
@@ -126,7 +126,9 @@ const filterBookingsForViewer = (
   }
 
   return bookings.filter((booking) =>
-    viewerIdentities.includes(normalizeIdentity(booking.user)),
+    [booking.user, booking.userEmail ?? ''].some((identity) =>
+      viewerIdentities.includes(normalizeIdentity(identity)),
+    ),
   );
 };
 
@@ -1046,6 +1048,3 @@ function App() {
 }
 
 export default App;
-
-
-

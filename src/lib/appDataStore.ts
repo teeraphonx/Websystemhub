@@ -1,4 +1,4 @@
-﻿import { initialAdminBookings } from '../data/adminBookings';
+import { initialAdminBookings } from '../data/adminBookings';
 import { categoryItems as seedCategoryItems } from '../data/categoryItems';
 import type {
   AdminBooking,
@@ -7,6 +7,7 @@ import type {
   CategoryId,
   CategoryItemsMap,
 } from '../types';
+import { fetchBookingRequests } from './bookingRequestsApi';
 import { fetchContactNotifications } from './contactNotificationsApi';
 import { fetchCategoryItemsFromApi } from './equipmentApi';
 
@@ -19,13 +20,14 @@ export interface AppDataStore {
 }
 
 type PersistedAppDataSnapshot = {
-  version: 2;
+  version: 3;
   adminBookings: AdminBooking[];
   adminNotifications: AdminNotification[];
   categoryStockByItemId: Record<string, number>;
 };
 
-export const APP_DATA_STORAGE_KEY = 'systemhub-app-data-v2';
+export const APP_DATA_STORAGE_KEY = 'systemhub-app-data-v3';
+const LEGACY_APP_DATA_STORAGE_KEYS = ['systemhub-app-data-v2'];
 
 const cloneCategoryItems = (categoryItems: CategoryItemsMap): CategoryItemsMap =>
   Object.fromEntries(
@@ -92,11 +94,45 @@ const createCategoryItemsFromPersistedStock = (
   return clonedItems;
 };
 
+const createBookingNotifications = (
+  bookings: AdminBooking[],
+  persistedNotifications: AdminNotification[] = [],
+): AdminNotification[] => {
+  const persistedReadState = new Map(
+    persistedNotifications.map((notification) => [notification.id, notification.isRead]),
+  );
+
+  return bookings
+    .filter((booking) => booking.status === 'รออนุมัติ')
+    .map((booking) => {
+      const id = `booking-${booking.id}`;
+
+      return {
+        id,
+        bookingId: booking.id,
+        title: 'มีคำขอจองใหม่',
+        desc: `${booking.user} จอง ${booking.itemName}`,
+        time: booking.time.replace(' น.', ''),
+        isRead: persistedReadState.get(id) ?? false,
+      };
+    });
+};
+
 const createBootstrapSnapshot = (): AppDataSnapshot => ({
   adminBookings: initialAdminBookings.map((booking) => ({ ...booking })),
   adminNotifications: [],
   categoryItems: cloneCategoryItems(seedCategoryItems),
 });
+
+const clearLegacySnapshots = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  for (const key of LEGACY_APP_DATA_STORAGE_KEYS) {
+    window.localStorage.removeItem(key);
+  }
+};
 
 const readPersistedSnapshot = (): PersistedAppDataSnapshot | null => {
   if (typeof window === 'undefined') {
@@ -113,7 +149,7 @@ const readPersistedSnapshot = (): PersistedAppDataSnapshot | null => {
     const parsedValue = JSON.parse(rawValue) as Partial<PersistedAppDataSnapshot>;
 
     if (
-      parsedValue.version !== 2 ||
+      parsedValue.version !== 3 ||
       !Array.isArray(parsedValue.adminBookings) ||
       !Array.isArray(parsedValue.adminNotifications) ||
       typeof parsedValue.categoryStockByItemId !== 'object' ||
@@ -123,7 +159,7 @@ const readPersistedSnapshot = (): PersistedAppDataSnapshot | null => {
     }
 
     return {
-      version: 2,
+      version: 3,
       adminBookings: parsedValue.adminBookings.map((booking) => ({ ...booking })),
       adminNotifications: parsedValue.adminNotifications.map((notification) => ({
         ...notification,
@@ -142,8 +178,10 @@ const persistSnapshot = (snapshot: AppDataSnapshot) => {
     return;
   }
 
+  clearLegacySnapshots();
+
   const payload: PersistedAppDataSnapshot = {
-    version: 2,
+    version: 3,
     adminBookings: snapshot.adminBookings.map((booking) => ({ ...booking })),
     adminNotifications: snapshot.adminNotifications.map((notification) => ({
       ...notification,
@@ -156,10 +194,12 @@ const persistSnapshot = (snapshot: AppDataSnapshot) => {
 
 const buildRemoteBackedSnapshot = async (): Promise<AppDataSnapshot> => {
   const persistedSnapshot = readPersistedSnapshot();
-  const [categoryItemsResult, contactNotificationsResult] = await Promise.allSettled([
-    fetchCategoryItemsFromApi(),
-    fetchContactNotifications(),
-  ]);
+  const [categoryItemsResult, contactNotificationsResult, bookingRequestsResult] =
+    await Promise.allSettled([
+      fetchCategoryItemsFromApi(),
+      fetchContactNotifications(),
+      fetchBookingRequests(),
+    ]);
 
   if (categoryItemsResult.status === 'rejected') {
     console.error(
@@ -175,6 +215,13 @@ const buildRemoteBackedSnapshot = async (): Promise<AppDataSnapshot> => {
     );
   }
 
+  if (bookingRequestsResult.status === 'rejected') {
+    console.error(
+      'Failed to load booking requests from API. Falling back to persisted bookings.',
+      bookingRequestsResult.reason,
+    );
+  }
+
   const remoteCategoryItems =
     categoryItemsResult.status === 'fulfilled'
       ? categoryItemsResult.value
@@ -183,20 +230,33 @@ const buildRemoteBackedSnapshot = async (): Promise<AppDataSnapshot> => {
     contactNotificationsResult.status === 'fulfilled'
       ? contactNotificationsResult.value
       : [];
+  const remoteAdminBookings =
+    bookingRequestsResult.status === 'fulfilled'
+      ? bookingRequestsResult.value
+      : persistedSnapshot?.adminBookings ?? initialAdminBookings.map((booking) => ({ ...booking }));
+  const persistedNotifications = persistedSnapshot?.adminNotifications ?? [];
+  const bookingNotifications = createBookingNotifications(
+    remoteAdminBookings,
+    persistedNotifications,
+  );
 
   if (!persistedSnapshot) {
     return {
-      adminBookings: initialAdminBookings.map((booking) => ({ ...booking })),
-      adminNotifications: remoteContactNotifications,
+      adminBookings: remoteAdminBookings,
+      adminNotifications: mergeAdminNotifications(
+        remoteContactNotifications,
+        bookingNotifications,
+      ),
       categoryItems: remoteCategoryItems,
     };
   }
 
   return {
-    adminBookings: persistedSnapshot.adminBookings.map((booking) => ({ ...booking })),
+    adminBookings: remoteAdminBookings,
     adminNotifications: mergeAdminNotifications(
       remoteContactNotifications,
-      persistedSnapshot.adminNotifications,
+      bookingNotifications,
+      persistedNotifications,
     ),
     categoryItems: createCategoryItemsFromPersistedStock(
       remoteCategoryItems,
