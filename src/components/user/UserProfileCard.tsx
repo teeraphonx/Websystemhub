@@ -37,7 +37,7 @@ export default function UserProfileCard({
         </div>
         <div>
           <h2 className="mb-1 text-2xl font-black tracking-wider text-white">
-            {username || email || 'Guest_User'}
+            {username || 'ผู้ใช้งานระบบ'}
           </h2>
           <p className="mb-2 text-[12px] font-medium tracking-wide text-gray-400">
             {email || 'ยังไม่มีอีเมลในระบบ'}

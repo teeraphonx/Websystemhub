@@ -75,7 +75,6 @@ const buildUserProfileRecord = (
   const username =
     fallbackData?.username?.trim() ||
     primaryData?.username?.trim() ||
-    email.split('@')[0] ||
     '';
 
   return {

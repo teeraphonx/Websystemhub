@@ -193,8 +193,7 @@ export const useAppHandlers = (state: AppState) => {
     }
 
     const now = new Date();
-    const requesterName =
-      state.username.trim() || state.email.trim() || 'ผู้ใช้งานระบบ';
+    const requesterName = state.username.trim() || 'ผู้ใช้งานระบบ';
     const requesterEmail = state.email.trim() || undefined;
     const requestedDate = createBangkokDateKey(now);
     const requestedTime = `${thaiTimeFormatter.format(now)} น.`;

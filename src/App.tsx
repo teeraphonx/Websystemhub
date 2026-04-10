@@ -211,7 +211,6 @@ const getUserDisplayName = (
 ) =>
   profileUsername?.trim() ||
   user.displayName?.trim() ||
-  user.email?.split('@')[0] ||
   '';
 
 const resolveAppRoute = (pathname: string): AppRouteState | null => {
