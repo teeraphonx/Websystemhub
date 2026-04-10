@@ -6,6 +6,7 @@ import {
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
+  updateProfile,
   type User as FirebaseUser,
 } from 'firebase/auth';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -203,6 +204,15 @@ const getPathForUserTab = (
 
 const getPostAuthPath = (view: AuthView) =>
   view === 'admin' ? DASHBOARD_ROUTE : USER_HOME_ROUTE;
+
+const getUserDisplayName = (
+  user: FirebaseUser,
+  profileUsername?: string | null,
+) =>
+  profileUsername?.trim() ||
+  user.displayName?.trim() ||
+  user.email?.split('@')[0] ||
+  '';
 
 const resolveAppRoute = (pathname: string): AppRouteState | null => {
   const normalizedPathname = normalizePathname(pathname);
@@ -418,13 +428,13 @@ function App() {
             return;
           }
 
-          setUsername(profile?.username ?? nextUser.email?.split('@')[0] ?? '');
+          setUsername(getUserDisplayName(nextUser, profile?.username));
         } catch {
           if (!isMounted) {
             return;
           }
 
-          setUsername(nextUser.email?.split('@')[0] ?? '');
+          setUsername(getUserDisplayName(nextUser));
         }
 
         if (isMounted) {
@@ -646,6 +656,9 @@ function App() {
           trimmedEmail,
           password,
         );
+        await updateProfile(userCredential.user, {
+          displayName: trimmedUsername,
+        });
 
         try {
           await createUserProfile({
@@ -675,11 +688,9 @@ function App() {
             userCredential.user.email ?? resolvedEmail,
           );
 
-          setUsername(
-            profile?.username ?? userCredential.user.email?.split('@')[0] ?? '',
-          );
+          setUsername(getUserDisplayName(userCredential.user, profile?.username));
         } catch {
-          setUsername(userCredential.user.email?.split('@')[0] ?? '');
+          setUsername(getUserDisplayName(userCredential.user));
         }
 
         setEmail(userCredential.user.email ?? resolvedEmail);
