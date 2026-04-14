@@ -207,11 +207,23 @@ const getPostAuthPath = (view: AuthView) =>
 
 const getUserDisplayName = (
   user: FirebaseUser,
-  profileUsername?: string | null,
-) =>
-  profileUsername?.trim() ||
-  user.displayName?.trim() ||
-  '';
+  options: {
+    profileUsername?: string | null;
+    fallbackUsername?: string | null;
+  } = {},
+) => {
+  const currentAuthUser = getFirebaseAuth().currentUser;
+  const syncedDisplayName =
+    currentAuthUser?.uid === user.uid ? currentAuthUser.displayName?.trim() : '';
+
+  return (
+    options.profileUsername?.trim() ||
+    syncedDisplayName ||
+    user.displayName?.trim() ||
+    options.fallbackUsername?.trim() ||
+    ''
+  );
+};
 
 const resolveAppRoute = (pathname: string): AppRouteState | null => {
   const normalizedPathname = normalizePathname(pathname);
@@ -427,13 +439,22 @@ function App() {
             return;
           }
 
-          setUsername(getUserDisplayName(nextUser, profile?.username));
+          setUsername((currentUsername) =>
+            getUserDisplayName(nextUser, {
+              profileUsername: profile?.username,
+              fallbackUsername: currentUsername,
+            }),
+          );
         } catch {
           if (!isMounted) {
             return;
           }
 
-          setUsername(getUserDisplayName(nextUser));
+          setUsername((currentUsername) =>
+            getUserDisplayName(nextUser, {
+              fallbackUsername: currentUsername,
+            }),
+          );
         }
 
         if (isMounted) {
@@ -665,7 +686,12 @@ function App() {
             username: trimmedUsername,
             email: trimmedEmail,
           });
-          setUsername(trimmedUsername);
+          setUsername((currentUsername) =>
+            getUserDisplayName(userCredential.user, {
+              profileUsername: trimmedUsername,
+              fallbackUsername: currentUsername || trimmedUsername,
+            }),
+          );
           setEmail(trimmedEmail);
         } catch (error) {
           await deleteUser(userCredential.user).catch(async () => {
@@ -687,9 +713,18 @@ function App() {
             userCredential.user.email ?? resolvedEmail,
           );
 
-          setUsername(getUserDisplayName(userCredential.user, profile?.username));
+          setUsername((currentUsername) =>
+            getUserDisplayName(userCredential.user, {
+              profileUsername: profile?.username,
+              fallbackUsername: currentUsername || trimmedUsername,
+            }),
+          );
         } catch {
-          setUsername(getUserDisplayName(userCredential.user));
+          setUsername((currentUsername) =>
+            getUserDisplayName(userCredential.user, {
+              fallbackUsername: currentUsername || trimmedUsername,
+            }),
+          );
         }
 
         setEmail(userCredential.user.email ?? resolvedEmail);
