@@ -1,15 +1,21 @@
 import {
   ChevronRight,
   History,
+  IdCard,
   Key,
   LogOut,
   Package,
+  ShieldCheck,
   UserCircle,
 } from 'lucide-react';
 
 interface UserProfileCardProps {
   username: string;
   email: string;
+  fullName: string;
+  officerId: string;
+  organizationUnit: string;
+  organizationStatus: 'verified' | 'pending' | 'rejected';
   userReservations: number;
   onOpenChangePassword: () => void;
   onOpenHistory: () => void;
@@ -19,11 +25,17 @@ interface UserProfileCardProps {
 export default function UserProfileCard({
   username,
   email,
+  fullName,
+  officerId,
+  organizationUnit,
+  organizationStatus,
   userReservations,
   onOpenChangePassword,
   onOpenHistory,
   onLogout,
 }: UserProfileCardProps) {
+  const isVerified = organizationStatus === 'verified';
+
   return (
     <div className="relative w-full max-w-[440px] overflow-hidden rounded-[2rem] border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] p-8 shadow-[0_20px_60px_rgba(0,0,0,0.8)]">
       <div className="systemhub-top-accent absolute left-0 top-0 h-1.5 w-full"></div>
@@ -42,8 +54,35 @@ export default function UserProfileCard({
           <p className="mb-2 text-[12px] font-medium tracking-wide text-gray-400">
             {email || 'ยังไม่มีอีเมลในระบบ'}
           </p>
-          <div className="inline-flex items-center justify-center rounded-full border border-[rgba(59,130,246,0.3)] bg-[rgba(37,99,235,0.16)] px-4 py-1.5 text-[12px] font-bold uppercase tracking-widest text-[var(--systemhub-accent)] shadow-inner">
-            Member
+          {fullName && (
+            <p className="mb-2 text-[12px] font-bold tracking-wide text-gray-300">
+              {fullName}
+            </p>
+          )}
+          <div className={`inline-flex items-center justify-center gap-2 rounded-full border px-4 py-1.5 text-[12px] font-bold uppercase tracking-widest shadow-inner ${isVerified ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[#86efac]' : 'border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.14)] text-[#fcd34d]'}`}>
+            <ShieldCheck size={14} />
+            {isVerified ? 'Verified' : 'Pending'}
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-5 rounded-2xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-inner)] p-5 shadow-inner">
+        <div className="mb-3 flex items-center gap-3 text-[12px] font-black uppercase tracking-widest text-[var(--systemhub-accent)]">
+          <IdCard size={17} />
+          ยืนยันตัวตน
+        </div>
+        <div className="grid gap-3 text-[13px]">
+          <div className="flex items-center justify-between gap-4">
+            <span className="font-bold text-gray-500">หน่วย</span>
+            <span className="text-right font-bold text-white">
+              {organizationUnit || 'รอยืนยัน'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="font-bold text-gray-500">รหัสเจ้าหน้าที่</span>
+            <span className="text-right font-bold text-white">
+              {officerId || 'รอยืนยัน'}
+            </span>
           </div>
         </div>
       </div>

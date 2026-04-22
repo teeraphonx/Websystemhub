@@ -11,7 +11,11 @@ import {
   updatePassword,
 } from 'firebase/auth';
 import { getFirebaseAuth } from '../../lib/firebase';
-import { getFirebaseAuthErrorModal } from '../../utils/validation';
+import {
+  getFirebaseAuthErrorModal,
+  isStrongPassword,
+  PASSWORD_REQUIREMENTS_MESSAGE,
+} from '../../utils/validation';
 
 interface ChangePasswordFormProps {
   onSuccess: () => void;
@@ -32,8 +36,8 @@ export default function ChangePasswordForm({ onSuccess, onError }: ChangePasswor
       return;
     }
 
-    if (newPassword.length < 6) {
-      onError('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
+    if (!isStrongPassword(newPassword)) {
+      onError(PASSWORD_REQUIREMENTS_MESSAGE);
       return;
     }
 
@@ -104,7 +108,7 @@ export default function ChangePasswordForm({ onSuccess, onError }: ChangePasswor
             value={newPassword}
             disabled={isSubmitting}
             onChange={(event) => setNewPassword(event.target.value)}
-            placeholder="ตั้งรหัสผ่านใหม่ A-Z, 0-9"
+            placeholder="A-Z, 0-9, อักขระพิเศษ"
             className="w-full rounded-xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-inner)] py-3.5 pl-12 pr-5 text-[13px] text-white outline-none transition-all shadow-inner focus:border-[var(--systemhub-primary-hover)] focus:bg-[#18243b] disabled:cursor-not-allowed disabled:opacity-70"
             required
           />

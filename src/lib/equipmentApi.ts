@@ -154,6 +154,24 @@ function resolveSubtitle(equipment: BackendEquipment) {
   return parts.join(' • ') || 'พร้อมให้ตรวจสอบในระบบ';
 }
 
+function resolveDescription(equipment: BackendEquipment) {
+  const detailParts = [
+    equipment.category ? `หมวดหมู่ ${equipment.category}` : null,
+    equipment.location ? `สถานที่จัดเก็บ ${equipment.location}` : null,
+    equipment.assetCode ? `รหัสครุภัณฑ์ ${equipment.assetCode}` : null,
+    equipment.serialNumber ? `เลขเครื่อง ${equipment.serialNumber}` : null,
+    equipment.conditionStatus ? `สถานะ ${equipment.conditionStatus}` : null,
+  ].filter(Boolean);
+
+  const quantitySummary = `จำนวนทั้งหมด ${equipment.totalQuantity} ชิ้น พร้อมจอง ${equipment.availableQuantity} ชิ้น`;
+  const detailSummary =
+    detailParts.length > 0
+      ? detailParts.join(' • ')
+      : 'ไม่มีรายละเอียดเพิ่มเติมจากระบบกลาง';
+
+  return `${equipment.name} - ${detailSummary} • ${quantitySummary}`;
+}
+
 function mapEquipmentItem(equipment: BackendEquipment): EquipmentItem {
   const categoryId = resolveCategoryId(equipment.category);
 
@@ -162,6 +180,7 @@ function mapEquipmentItem(equipment: BackendEquipment): EquipmentItem {
     equipId: equipment.assetCode || equipment.serialNumber || `EQ-${equipment.id}`,
     name: equipment.name,
     sub: resolveSubtitle(equipment),
+    description: resolveDescription(equipment),
     stock: Number.isFinite(equipment.availableQuantity)
       ? equipment.availableQuantity
       : equipment.totalQuantity,
@@ -196,6 +215,7 @@ function createGroupedEquipmentItems(items: EquipmentItem[]): EquipmentItem[] {
       stock: nextStock,
       tag: nextStock > 0 ? existingItem.tag.replace('OUT', '') : 'OUT',
       sub: `รวม ${nextGroupedCount} รายการ • ${existingItem.baseSub}`,
+      description: `รายการนี้รวมครุภัณฑ์ชื่อเดียวกัน ${nextGroupedCount} รายการในระบบกลาง จำนวนพร้อมจองรวม ${nextStock} ชิ้น รายละเอียดหลัก: ${existingItem.description}`,
       equipId:
         nextGroupedCount === 2
           ? `${existingItem.equipId} +1 รหัส`

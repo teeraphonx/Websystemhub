@@ -3,6 +3,10 @@ import UserProfileCard from '../../components/user/UserProfileCard';
 interface UserProfilePageProps {
   username: string;
   email: string;
+  fullName: string;
+  officerId: string;
+  organizationUnit: string;
+  organizationStatus: 'verified' | 'pending' | 'rejected';
   userReservations: number;
   onOpenChangePassword: () => void;
   onOpenHistory: () => void;
@@ -15,6 +19,10 @@ export default function UserProfilePage(props: UserProfilePageProps) {
       <UserProfileCard
         username={props.username}
         email={props.email}
+        fullName={props.fullName}
+        officerId={props.officerId}
+        organizationUnit={props.organizationUnit}
+        organizationStatus={props.organizationStatus}
         userReservations={props.userReservations}
         onOpenChangePassword={props.onOpenChangePassword}
         onOpenHistory={props.onOpenHistory}

@@ -1,7 +1,12 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
-export type AuthView = 'login' | 'register' | 'forgot-password' | 'admin';
+export type AuthView =
+  | 'login'
+  | 'register'
+  | 'forgot-password'
+  | 'verify-email'
+  | 'admin';
 export type AppView = AuthView | 'user-home' | 'dashboard';
 export type UserTab =
   | 'home'
@@ -11,7 +16,8 @@ export type UserTab =
   | 'contact'
   | 'user'
   | 'history'
-  | 'change_password';
+  | 'change_password'
+  | 'verify_organization';
 export type ModalType = 'success' | 'warning' | 'error';
 export type CategoryId = 'it' | 'av' | 'furniture' | 'inspection';
 export type CalendarDayType = 'prev' | 'curr' | 'next';
@@ -31,7 +37,7 @@ export interface NavItem {
 }
 
 export interface AuthTab {
-  id: Exclude<AuthView, 'forgot-password'>;
+  id: Exclude<AuthView, 'forgot-password' | 'verify-email'>;
   label: string;
   icon: LucideIcon;
 }
@@ -50,6 +56,7 @@ export interface EquipmentItem {
   equipId: string;
   name: string;
   sub: string;
+  description: string;
   stock: number;
   tag: string;
   icon: LucideIcon;

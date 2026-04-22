@@ -32,13 +32,38 @@ export interface UserProfileRecord {
   username: string;
   normalizedUsername: string;
   email: string;
+  officerId: string;
+  fullName: string;
+  organizationUnit: string;
+  organizationStatus: 'verified' | 'pending' | 'rejected';
+  organizationVerifiedAt: number;
   createdAt: number;
+}
+
+type OrganizationStatus = UserProfileRecord['organizationStatus'];
+
+interface OrganizationMemberRecord {
+  email?: string;
+  officerId?: string;
+  fullName?: string;
+  unit?: string;
+  department?: string;
+  active?: boolean;
 }
 
 const USERNAME_TAKEN_MESSAGE = 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว';
 const USERNAME_NOT_FOUND_MESSAGE = 'ไม่พบชื่อผู้ใช้นี้ในระบบ';
+const ORGANIZATION_MEMBER_NOT_FOUND_MESSAGE =
+  'ไม่พบข้อมูลเจ้าหน้าที่นี้ในรายชื่อ บก.สอท.1';
+const ORGANIZATION_MEMBER_INACTIVE_MESSAGE =
+  'บัญชีเจ้าหน้าที่นี้ยังไม่ได้รับอนุญาตให้ใช้งานระบบ';
+const ORGANIZATION_MEMBER_MISMATCH_MESSAGE =
+  'อีเมลหรือรหัสเจ้าหน้าที่ไม่ตรงกับรายชื่อ บก.สอท.1';
+const ORGANIZATION_UNIT = 'บก.สอท.1';
+const ORGANIZATION_STATUS_VERIFIED = 'verified';
 const PROFILES_COLLECTION = 'profiles';
 const USERNAMES_COLLECTION = 'usernames';
+const ORGANIZATION_MEMBERS_COLLECTION = 'organizationMembers';
 
 const defaultFirebaseApp = getApps().find((app) => app.name === '[DEFAULT]');
 const firebaseApp = defaultFirebaseApp ?? initializeApp(firebaseConfig);
@@ -60,8 +85,20 @@ export const setFirebaseAuthPersistence = async (rememberMe: boolean) => {
 
 export const normalizeUsername = (value: string) => value.trim().toLowerCase();
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const normalizeOfficerId = (value: string) => value.trim().toUpperCase();
 
 const looksLikeEmail = (value: string) => value.includes('@');
+
+const normalizeOrganizationMember = (
+  data: OrganizationMemberRecord,
+): Required<OrganizationMemberRecord> => ({
+  email: normalizeEmail(data.email ?? ''),
+  officerId: normalizeOfficerId(data.officerId ?? ''),
+  fullName: data.fullName?.trim() ?? '',
+  unit: data.unit?.trim() ?? '',
+  department: data.department?.trim() ?? '',
+  active: data.active === true,
+});
 
 const buildUserProfileRecord = (
   uid: string,
@@ -85,9 +122,83 @@ const buildUserProfileRecord = (
       primaryData?.normalizedUsername ??
       normalizeUsername(username),
     email,
+    officerId:
+      fallbackData?.officerId ?? primaryData?.officerId ?? '',
+    fullName:
+      fallbackData?.fullName?.trim() || primaryData?.fullName?.trim() || '',
+    organizationUnit:
+      fallbackData?.organizationUnit?.trim() ||
+      primaryData?.organizationUnit?.trim() ||
+      '',
+    organizationStatus:
+      fallbackData?.organizationStatus ??
+      primaryData?.organizationStatus ??
+      'pending',
+    organizationVerifiedAt:
+      fallbackData?.organizationVerifiedAt ??
+      primaryData?.organizationVerifiedAt ??
+      0,
     createdAt: primaryData?.createdAt ?? fallbackData?.createdAt ?? 0,
   };
 };
+
+export const verifyOrganizationMember = async ({
+  email,
+  officerId,
+}: {
+  email: string;
+  officerId: string;
+}) => {
+  const cleanEmail = normalizeEmail(email);
+  const cleanOfficerId = normalizeOfficerId(officerId);
+
+  if (!cleanOfficerId) {
+    throw new Error('กรุณากรอกรหัสเจ้าหน้าที่');
+  }
+
+  const memberByEmailSnapshot = await getDoc(
+    doc(db, ORGANIZATION_MEMBERS_COLLECTION, cleanEmail),
+  );
+
+  const memberData = memberByEmailSnapshot.exists()
+    ? (memberByEmailSnapshot.data() as OrganizationMemberRecord)
+    : null;
+
+  if (!memberData) {
+    throw new Error(ORGANIZATION_MEMBER_NOT_FOUND_MESSAGE);
+  }
+
+  const member = normalizeOrganizationMember(memberData);
+
+  if (!member.active) {
+    throw new Error(ORGANIZATION_MEMBER_INACTIVE_MESSAGE);
+  }
+
+  if (
+    member.email !== cleanEmail ||
+    member.officerId !== cleanOfficerId ||
+    member.unit !== ORGANIZATION_UNIT
+  ) {
+    throw new Error(ORGANIZATION_MEMBER_MISMATCH_MESSAGE);
+  }
+
+  return {
+    ...member,
+    unit: ORGANIZATION_UNIT,
+  };
+};
+
+export const isVerifiedOrganizationProfile = (
+  profile: Pick<
+    UserProfileRecord,
+    'officerId' | 'organizationUnit' | 'organizationStatus'
+  > | null,
+) =>
+  Boolean(
+    profile?.officerId &&
+      profile.organizationUnit === ORGANIZATION_UNIT &&
+      profile.organizationStatus === ORGANIZATION_STATUS_VERIFIED,
+  );
 
 const findUserProfileByEmail = async (email: string) => {
   const normalizedEmail = normalizeEmail(email);
@@ -143,7 +254,22 @@ export const createUserProfile = async ({
   uid,
   username,
   email,
-}: Pick<UserProfileRecord, 'uid' | 'username' | 'email'>) => {
+  officerId = '',
+  fullName = '',
+  organizationUnit = '',
+  organizationStatus = 'pending',
+  organizationVerifiedAt = 0,
+}: Pick<UserProfileRecord, 'uid' | 'username' | 'email'> &
+  Partial<
+    Pick<
+      UserProfileRecord,
+      | 'officerId'
+      | 'fullName'
+      | 'organizationUnit'
+      | 'organizationStatus'
+      | 'organizationVerifiedAt'
+    >
+  >) => {
   const cleanUsername = username.trim();
   const normalizedUsername = normalizeUsername(cleanUsername);
   const cleanEmail = normalizeEmail(email);
@@ -162,12 +288,72 @@ export const createUserProfile = async ({
       username: cleanUsername,
       normalizedUsername,
       email: cleanEmail,
+      officerId: normalizeOfficerId(officerId),
+      fullName: fullName.trim(),
+      organizationUnit,
+      organizationStatus,
+      organizationVerifiedAt,
       createdAt: Date.now(),
     };
 
     transaction.set(usernameRef, profileRecord);
     transaction.set(profileRef, profileRecord);
   });
+};
+
+export const verifyUserOrganizationProfile = async ({
+  uid,
+  email,
+  officerId,
+}: {
+  uid: string;
+  email: string;
+  officerId: string;
+}) => {
+  const member = await verifyOrganizationMember({ email, officerId });
+  const profileRef = doc(db, PROFILES_COLLECTION, uid);
+
+  await runTransaction(db, async (transaction) => {
+    const profileSnapshot = await transaction.get(profileRef);
+
+    if (!profileSnapshot.exists()) {
+      throw new Error('ไม่พบโปรไฟล์ผู้ใช้สำหรับยืนยันตัวตน');
+    }
+
+    const profileData = profileSnapshot.data() as Partial<UserProfileRecord>;
+    const cleanUsername = profileData.username?.trim() ?? '';
+    const normalizedUsername =
+      profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
+    const verifiedAt = Date.now();
+    const organizationStatus: OrganizationStatus = ORGANIZATION_STATUS_VERIFIED;
+    const verificationUpdates = {
+      officerId: member.officerId,
+      fullName: member.fullName,
+      organizationUnit: member.unit,
+      organizationStatus,
+      organizationVerifiedAt: verifiedAt,
+    };
+
+    transaction.update(profileRef, verificationUpdates);
+
+    if (normalizedUsername) {
+      const usernameRef = doc(db, USERNAMES_COLLECTION, normalizedUsername);
+      transaction.set(
+        usernameRef,
+        {
+          ...profileData,
+          uid,
+          username: cleanUsername,
+          normalizedUsername,
+          email: normalizeEmail(email),
+          ...verificationUpdates,
+        },
+        { merge: true },
+      );
+    }
+  });
+
+  return getUserProfile(uid, email);
 };
 
 export const getUserProfile = async (uid: string, fallbackEmail = '') => {

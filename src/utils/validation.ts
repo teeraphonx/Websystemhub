@@ -4,7 +4,21 @@ import { createErrorModal, createWarningModal } from './modal';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_PATTERN = /^(?=.{3,20}$)[a-zA-Z0-9._-]+$/;
+const PASSWORD_MIN_LENGTH = 6;
+const PASSWORD_UPPERCASE_PATTERN = /[A-Z]/;
+const PASSWORD_NUMBER_PATTERN = /\d/;
+const PASSWORD_SPECIAL_CHARACTER_PATTERN =
+  /[!@#$%^&*(),.?":{}|<>_\-+=`~;'\[\]\\\/]/;
 const FALLBACK_ERROR_MESSAGE = 'ไม่สามารถทำรายการได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง';
+
+export const PASSWORD_REQUIREMENTS_MESSAGE =
+  'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร และต้องมีตัวพิมพ์ใหญ่ ตัวเลข และอักขระพิเศษอย่างน้อยอย่างละ 1 ตัว';
+
+export const isStrongPassword = (password: string) =>
+  password.length >= PASSWORD_MIN_LENGTH &&
+  PASSWORD_UPPERCASE_PATTERN.test(password) &&
+  PASSWORD_NUMBER_PATTERN.test(password) &&
+  PASSWORD_SPECIAL_CHARACTER_PATTERN.test(password);
 
 type AuthFlow = AuthView | 'change-password';
 
@@ -18,6 +32,7 @@ export type AuthValidationIssue =
   | 'missing-fields'
   | 'invalid-username-format'
   | 'missing-email'
+  | 'missing-officer-id'
   | 'invalid-email-format'
   | 'password-mismatch'
   | 'weak-password';
@@ -31,6 +46,7 @@ export interface AuthValidationInput {
   view: AuthView;
   username: string;
   email: string;
+  officerId?: string;
   password: string;
   confirmPassword: string;
 }
@@ -39,6 +55,7 @@ export const isAuthView = (view: AppView): view is AuthView =>
   view === 'login' ||
   view === 'register' ||
   view === 'forgot-password' ||
+  view === 'verify-email' ||
   view === 'admin';
 
 export const getAuthValidationResult = ({
@@ -80,7 +97,10 @@ export const getAuthValidationResult = ({
     (view === 'register' && (!trimmedEmail || !confirmPassword))
   ) {
     return {
-      issue: view === 'register' && !trimmedEmail ? 'missing-email' : 'missing-fields',
+      issue:
+        view === 'register' && !trimmedEmail
+          ? 'missing-email'
+          : 'missing-fields',
       modal: createWarningModal('แจ้งเตือน', 'กรุณากรอกข้อมูลให้ครบถ้วน'),
     };
   }
@@ -109,12 +129,12 @@ export const getAuthValidationResult = ({
     };
   }
 
-  if (view === 'register' && password.length < 6) {
+  if (view === 'register' && !isStrongPassword(password)) {
     return {
       issue: 'weak-password',
       modal: createWarningModal(
-        'รหัสผ่านสั้นเกินไป',
-        'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร',
+        'รหัสผ่านไม่ปลอดภัยพอ',
+        PASSWORD_REQUIREMENTS_MESSAGE,
       ),
     };
   }
@@ -138,6 +158,8 @@ const getAuthErrorTitle = (flow: AuthFlow) => {
       return 'สมัครสมาชิกไม่สำเร็จ';
     case 'forgot-password':
       return 'ส่งคำขอกู้คืนไม่สำเร็จ';
+    case 'verify-email':
+      return 'ยืนยันอีเมลไม่สำเร็จ';
     case 'admin':
       return 'เข้าสู่ระบบแอดมินไม่สำเร็จ';
     case 'change-password':
@@ -263,8 +285,8 @@ export const getFirebaseAuthErrorModal = (
       );
     case 'auth/weak-password':
       return createWarningModal(
-        'รหัสผ่านสั้นเกินไป',
-        'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร',
+        'รหัสผ่านไม่ปลอดภัยพอ',
+        PASSWORD_REQUIREMENTS_MESSAGE,
       );
     case 'auth/user-not-found':
       return createErrorModal(
@@ -320,6 +342,11 @@ export const getAuthSuccessMessage = (
       return {
         title: 'ส่งข้อมูลสำเร็จ',
         desc: 'ระบบได้ส่งอีเมลสำหรับรีเซ็ตรหัสผ่านแล้ว',
+      };
+    case 'verify-email':
+      return {
+        title: 'ยืนยันอีเมล',
+        desc: 'กรุณาตรวจสอบอีเมลเพื่อยืนยันบัญชีของคุณ',
       };
     default:
       return { title: 'สำเร็จ', desc: 'เข้าสู่ระบบสำเร็จ' };

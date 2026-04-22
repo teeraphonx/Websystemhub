@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   Eye,
   EyeOff,
+  IdCard,
   Lock,
   Mail,
   User,
@@ -29,6 +30,11 @@ interface AuthPanelProps {
   secondaryFieldType?: 'text' | 'email';
   secondaryFieldAutoComplete?: string;
   onSecondaryFieldChange?: (value: string) => void;
+  identityFieldLabel?: string;
+  identityFieldPlaceholder?: string;
+  identityFieldValue?: string;
+  identityFieldAutoComplete?: string;
+  onIdentityFieldChange?: (value: string) => void;
   extraPasswordLabel?: string;
   extraPassword?: string;
   extraPasswordAutoComplete?: string;
@@ -173,6 +179,11 @@ export default function AuthPanel({
   secondaryFieldType = 'text',
   secondaryFieldAutoComplete,
   onSecondaryFieldChange,
+  identityFieldLabel,
+  identityFieldPlaceholder,
+  identityFieldValue = '',
+  identityFieldAutoComplete,
+  onIdentityFieldChange,
   extraPasswordLabel,
   extraPassword = '',
   extraPasswordAutoComplete,
@@ -243,6 +254,19 @@ export default function AuthPanel({
           />
         )}
 
+        {identityFieldLabel && identityFieldPlaceholder && onIdentityFieldChange && (
+          <TextField
+            label={identityFieldLabel}
+            placeholder={identityFieldPlaceholder}
+            value={identityFieldValue}
+            autoComplete={identityFieldAutoComplete}
+            disabled={isSubmitting}
+            icon={IdCard}
+            delayClass="delay-[275ms]"
+            onChange={onIdentityFieldChange}
+          />
+        )}
+
         {showExtraPasswordField && extraPasswordLabel && onExtraPasswordChange && onToggleExtraPassword && (
           <PasswordField
             label={extraPasswordLabel}
@@ -250,7 +274,7 @@ export default function AuthPanel({
             visible={showExtraPassword}
             autoComplete={extraPasswordAutoComplete}
             disabled={isSubmitting}
-            delayClass="delay-[275ms]"
+            delayClass={identityFieldLabel ? 'delay-[325ms]' : 'delay-[275ms]'}
             onChange={onExtraPasswordChange}
             onToggle={onToggleExtraPassword}
           />
@@ -264,7 +288,11 @@ export default function AuthPanel({
               visible={showPassword}
               autoComplete={passwordAutoComplete}
               disabled={isSubmitting}
-              delayClass={showExtraPasswordField ? 'delay-[325ms]' : 'delay-300'}
+              delayClass={
+                showExtraPasswordField || identityFieldLabel
+                  ? 'delay-[350ms]'
+                  : 'delay-300'
+              }
               onChange={onPasswordChange}
               onToggle={onTogglePassword}
             />
