@@ -94,3 +94,17 @@ export const setAdminFirebaseAuthPersistence = async (rememberMe: boolean) => {
     rememberMe ? browserLocalPersistence : browserSessionPersistence,
   );
 };
+
+export const getAdminAuthToken = async (forceRefresh = false) => {
+  if (!isAdminFirebaseConfigured()) {
+    return null;
+  }
+
+  const currentUser = getAdminAuth().currentUser;
+
+  if (!currentUser) {
+    return null;
+  }
+
+  return currentUser.getIdToken(forceRefresh);
+};

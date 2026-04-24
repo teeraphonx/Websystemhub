@@ -4,10 +4,11 @@ interface UserProfilePageProps {
   username: string;
   email: string;
   fullName: string;
-  officerId: string;
-  organizationUnit: string;
+  organizationDivision: string;
   organizationStatus: 'verified' | 'pending' | 'rejected';
+  organizationVerificationRequestStatus?: 'pending' | 'approved' | 'rejected';
   userReservations: number;
+  onOpenVerification: () => void;
   onOpenChangePassword: () => void;
   onOpenHistory: () => void;
   onLogout: () => void;
@@ -20,10 +21,13 @@ export default function UserProfilePage(props: UserProfilePageProps) {
         username={props.username}
         email={props.email}
         fullName={props.fullName}
-        officerId={props.officerId}
-        organizationUnit={props.organizationUnit}
+        organizationDivision={props.organizationDivision}
         organizationStatus={props.organizationStatus}
+        organizationVerificationRequestStatus={
+          props.organizationVerificationRequestStatus
+        }
         userReservations={props.userReservations}
+        onOpenVerification={props.onOpenVerification}
         onOpenChangePassword={props.onOpenChangePassword}
         onOpenHistory={props.onOpenHistory}
         onLogout={props.onLogout}

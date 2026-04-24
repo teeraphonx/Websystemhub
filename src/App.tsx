@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEventHandler } from 'react';
+import { useCallback, useEffect, useState, type FormEventHandler } from 'react';
 import {
   createUserWithEmailAndPassword,
   deleteUser,
@@ -15,7 +15,9 @@ import type {
   AdminBooking,
   AppView,
   AuthView,
+  BookingScheduleInput,
   CategoryId,
+  EquipmentItem,
   HistoryRecord,
   UserTab,
 } from './types';
@@ -38,6 +40,7 @@ import ChangePasswordPage from './pages/user/ChangePasswordPage';
 import HistoryPage from './pages/user/HistoryPage';
 import VerifyOrganizationPage from './pages/user/VerifyOrganizationPage';
 import DashboardPage from './pages/admin/DashboardPage';
+import { appDataStore } from './lib/appDataStore';
 import {
   getAdminAuth,
   isAdminFirebaseConfigured,
@@ -51,7 +54,8 @@ import {
   isVerifiedOrganizationProfile,
   resolveEmailForAuth,
   setFirebaseAuthPersistence,
-  verifyUserOrganizationProfile,
+  submitOrganizationVerificationRequest,
+  updateUserActivity,
   type UserProfileRecord,
 } from './lib/firebase';
 import { useAppHandlers } from './hooks/useAppHandlers';
@@ -97,6 +101,7 @@ const VERIFY_ORGANIZATION_ROUTE = '/verify-organization';
 const REDIRECT_DELAY_MS = 1400;
 const PROMO_POPUP_DELAY_MS = 120;
 const PROMO_AFTER_AUTH_BUFFER_MS = 500;
+const USER_ACTIVITY_HEARTBEAT_MS = 60000;
 const CATEGORY_IDS: CategoryId[] = ['it', 'av', 'furniture', 'inspection'];
 const HISTORY_TIME_PATTERN = /(\d{1,2}:\d{2})/;
 const DEFAULT_PICKUP_LOCATION = 'ฝ่ายอำนวยการ';
@@ -164,6 +169,15 @@ const createHistoryRecordsFromBookings = (
     details: [
       `รหัสครุภัณฑ์: ${booking.itemId}`,
       `จำนวนที่จอง: ${booking.requestedQuantity} ชิ้น`,
+      `ช่วงยืม: ${booking.date} ${getSortableTime(booking.time) || booking.time}${
+        booking.returnDate
+          ? ` - ${booking.returnDate} ${
+              booking.returnTime
+                ? getSortableTime(booking.returnTime) || booking.returnTime
+                : ''
+            }`
+          : ''
+      }`,
       `สถานที่รับครุภัณฑ์: ${DEFAULT_PICKUP_LOCATION}`,
     ],
     status: getDisplayBookingStatus(booking.status),
@@ -360,7 +374,6 @@ function App() {
   const [currentUserProfile, setCurrentUserProfile] =
     useState<UserProfileRecord | null>(null);
   const [hasLoadedUserProfile, setHasLoadedUserProfile] = useState(false);
-  const [officerId, setOfficerId] = useState('');
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isAdminAuthReady, setIsAdminAuthReady] = useState(false);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
@@ -370,6 +383,11 @@ function App() {
     isOrganizationVerificationSubmitting,
     setIsOrganizationVerificationSubmitting,
   ] = useState(false);
+  const [verificationCardNumber, setVerificationCardNumber] = useState('');
+  const [verificationDivision, setVerificationDivision] = useState('');
+  const [verificationCardImage, setVerificationCardImage] = useState<File | null>(
+    null,
+  );
   const [postAuthRedirectPath, setPostAuthRedirectPath] = useState<string | null>(null);
   const [promoReadyAt, setPromoReadyAt] = useState(0);
   const {
@@ -467,7 +485,9 @@ function App() {
           setPromoReadyAt(0);
           setUsername('');
           setEmail('');
-          setOfficerId('');
+          setVerificationCardNumber('');
+          setVerificationDivision('');
+          setVerificationCardImage(null);
           setRememberMe(false);
           setUserReservations(0);
           setHistoryDateFilter('');
@@ -489,6 +509,7 @@ function App() {
 
           setCurrentUserProfile(profile);
           setHasLoadedUserProfile(true);
+          setVerificationDivision(profile?.organizationDivision ?? '');
           setUsername((currentUsername) =>
             getUserDisplayName(nextUser, {
               profileUsername: profile?.username,
@@ -502,6 +523,7 @@ function App() {
 
           setHasLoadedUserProfile(true);
           setCurrentUserProfile(null);
+          setVerificationDivision('');
           setUsername((currentUsername) =>
             getUserDisplayName(nextUser, {
               fallbackUsername: currentUsername,
@@ -608,6 +630,62 @@ function App() {
     setDontShowPromo(false);
   };
 
+  const updateCurrentUserActivity = useCallback(
+    async (isActive: boolean) => {
+      const activityUser = getFirebaseAuth().currentUser ?? authUser;
+
+      if (!activityUser || !currentUserProfile) {
+        return;
+      }
+
+      try {
+        await updateUserActivity({
+          uid: activityUser.uid,
+          email: activityUser.email ?? email,
+          normalizedUsername: currentUserProfile?.normalizedUsername,
+          isActive,
+        });
+      } catch (error) {
+        console.error('Failed to sync user activity.', error);
+      }
+    },
+    [authUser, currentUserProfile, email],
+  );
+
+  useEffect(() => {
+    if (!authUser || !currentUserProfile) {
+      return () => undefined;
+    }
+
+    const markActive = () => {
+      void updateCurrentUserActivity(true);
+    };
+    const markInactive = () => {
+      void updateCurrentUserActivity(false);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        markActive();
+      }
+    };
+
+    markActive();
+
+    const intervalId = window.setInterval(
+      markActive,
+      USER_ACTIVITY_HEARTBEAT_MS,
+    );
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', markInactive);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', markInactive);
+    };
+  }, [authUser, currentUserProfile, updateCurrentUserActivity]);
+
   const handleAuthRouteChange = (nextView: AuthView) => {
     if (isAuthSubmitting) {
       return;
@@ -689,7 +767,6 @@ function App() {
       view: currentRoute.view,
       username,
       email,
-      officerId,
       password,
       confirmPassword,
     });
@@ -739,6 +816,7 @@ function App() {
             username: trimmedUsername,
             email: trimmedEmail,
           });
+          const registeredAt = Date.now();
           setCurrentUserProfile({
             uid: userCredential.user.uid,
             username: trimmedUsername,
@@ -747,9 +825,13 @@ function App() {
             officerId: '',
             fullName: '',
             organizationUnit: '',
+            organizationDivision: '',
             organizationStatus: 'pending',
             organizationVerifiedAt: 0,
-            createdAt: Date.now(),
+            isActive: true,
+            lastActiveAt: registeredAt,
+            activityUpdatedAt: registeredAt,
+            createdAt: registeredAt,
           });
           setUsername((currentUsername) =>
             getUserDisplayName(userCredential.user, {
@@ -788,9 +870,6 @@ function App() {
         if (!userCredential.user.emailVerified) {
           nextPath = VERIFY_EMAIL_ROUTE;
           setPostAuthRedirectPath(nextPath);
-        } else if (!isVerifiedOrganizationProfile(profile)) {
-          nextPath = VERIFY_ORGANIZATION_ROUTE;
-          setPostAuthRedirectPath(nextPath);
         }
 
         setCurrentUserProfile(profile);
@@ -809,11 +888,6 @@ function App() {
               title: 'ยืนยันอีเมล',
               desc: 'ระบบส่งอีเมลยืนยันให้แล้ว กรุณาตรวจสอบกล่องจดหมายก่อนเข้าใช้งาน',
             }
-          : nextPath === VERIFY_ORGANIZATION_ROUTE
-            ? {
-                title: 'ยืนยันตัวตน',
-                desc: 'กรุณายืนยันรหัสเจ้าหน้าที่ บก.สอท.1 ก่อนเข้าใช้งานระบบ',
-              }
           : getAuthSuccessMessage(currentRoute.view);
       if (nextPath === USER_HOME_ROUTE) {
         clearPromoPopupSuppression();
@@ -839,6 +913,7 @@ function App() {
   const handleUserLogout = async () => {
     try {
       if (authUser) {
+        await updateCurrentUserActivity(false);
         await firebaseSignOut(getFirebaseAuth());
       }
 
@@ -934,24 +1009,18 @@ function App() {
         return;
       }
 
-      const nextPath = isVerifiedOrganizationProfile(currentUserProfile)
-        ? USER_HOME_ROUTE
-        : VERIFY_ORGANIZATION_ROUTE;
+      const nextPath = USER_HOME_ROUTE;
 
       setPostAuthRedirectPath(nextPath);
       setAuthUser(currentUser);
-      if (nextPath === USER_HOME_ROUTE) {
-        clearPromoPopupSuppression();
-        setPromoReadyAt(
-          Date.now() + REDIRECT_DELAY_MS + PROMO_AFTER_AUTH_BUFFER_MS,
-        );
-      }
+      clearPromoPopupSuppression();
+      setPromoReadyAt(
+        Date.now() + REDIRECT_DELAY_MS + PROMO_AFTER_AUTH_BUFFER_MS,
+      );
       setModalState(
         createSuccessModal(
           'ยืนยันสำเร็จ',
-          nextPath === USER_HOME_ROUTE
-            ? 'อีเมลของคุณผ่านการยืนยันแล้ว กำลังพาเข้าสู่ระบบ'
-            : 'อีเมลของคุณผ่านการยืนยันแล้ว ขั้นต่อไปคือยืนยันตัวตน บก.สอท.1',
+          'อีเมลของคุณผ่านการยืนยันแล้ว กำลังพาเข้าสู่ระบบ',
         ),
       );
 
@@ -970,6 +1039,7 @@ function App() {
   const handleBackToLoginFromVerification = async () => {
     try {
       if (authUser) {
+        await updateCurrentUserActivity(false);
         await firebaseSignOut(getFirebaseAuth());
       }
 
@@ -995,51 +1065,39 @@ function App() {
         return;
       }
 
-      if (!officerId.trim()) {
-        setModalState(
-          createErrorModal(
-            'กรอกรหัสเจ้าหน้าที่',
-            'กรุณากรอกรหัสหรือเลขประจำตัวเจ้าหน้าที่ก่อนดำเนินการ',
-          ),
-        );
-        return;
-      }
-
       try {
         setIsOrganizationVerificationSubmitting(true);
-        const verifiedProfile = await verifyUserOrganizationProfile({
+        const updatedProfile = await submitOrganizationVerificationRequest({
           uid: authUser.uid,
           email: authUser.email,
-          officerId,
+          division: verificationDivision,
+          cardNumber: verificationCardNumber,
+          cardImage: verificationCardImage,
         });
 
-        setCurrentUserProfile(verifiedProfile);
+        setCurrentUserProfile(updatedProfile);
         setHasLoadedUserProfile(true);
-        setOfficerId('');
-        clearPromoPopupSuppression();
-        setPromoReadyAt(
-          Date.now() + REDIRECT_DELAY_MS + PROMO_AFTER_AUTH_BUFFER_MS,
-        );
-        setPostAuthRedirectPath(USER_HOME_ROUTE);
+        setVerificationCardNumber('');
+        setVerificationDivision(updatedProfile?.organizationDivision ?? verificationDivision);
+        setVerificationCardImage(null);
+        setPostAuthRedirectPath(null);
         setModalState(
           createSuccessModal(
-            'ยืนยันตัวตนสำเร็จ',
-            'บัญชีของคุณได้รับการยืนยันว่าอยู่ใน บก.สอท.1 แล้ว',
+            'ส่งคำขอสำเร็จ',
+            'ระบบได้รับรูปบัตรและเลขบัตรแล้ว กรุณารอแอดมินตรวจสอบและอนุมัติบัญชี',
           ),
         );
 
         window.setTimeout(() => {
           handlers.closeModal();
-          setPostAuthRedirectPath(null);
-          navigate(USER_HOME_ROUTE);
         }, REDIRECT_DELAY_MS);
       } catch (error) {
         setModalState(
           createErrorModal(
-            'ยืนยันตัวตนไม่สำเร็จ',
+            'ส่งคำขอไม่สำเร็จ',
             error instanceof Error
               ? error.message
-              : 'ไม่สามารถตรวจสอบรหัสเจ้าหน้าที่ได้ กรุณาลองใหม่อีกครั้ง',
+              : 'ไม่สามารถส่งคำขอยืนยันตัวตนได้ กรุณาลองใหม่อีกครั้ง',
           ),
         );
       } finally {
@@ -1047,11 +1105,33 @@ function App() {
       }
     };
 
+  const canReserveEquipment = isVerifiedOrganizationProfile(currentUserProfile);
+  const handleVerifiedReserveItem = (
+    item: EquipmentItem,
+    schedule?: BookingScheduleInput,
+  ) => {
+    if (!canReserveEquipment) {
+      setModalState(
+        createErrorModal(
+          'ต้องยืนยันตัวตนก่อนจอง',
+          'กรุณายืนยันตัวตนในหน้าข้อมูลผู้ใช้ และรอแอดมินอนุมัติก่อนทำรายการจองครุภัณฑ์',
+        ),
+      );
+      return;
+    }
+
+    void handlers.handleReserveItem(item, schedule);
+  };
+
   const viewerBookings = filterBookingsForViewer(
     state.adminBookings,
     username,
     authUser?.email ?? email,
   );
+  const handleAdminEquipmentCatalogChanged = useCallback(async () => {
+    const nextSnapshot = await appDataStore.resetSnapshot();
+    state.setAppData(nextSnapshot);
+  }, [state.setAppData]);
   const approvedViewerBookings = viewerBookings.filter(
     (booking) => booking.status === 'อนุมัติแล้ว',
   );
@@ -1164,11 +1244,19 @@ function App() {
         return (
           <VerifyOrganizationPage
             email={authUser?.email ?? email}
-            officerId={officerId}
+            division={verificationDivision}
+            cardNumber={verificationCardNumber}
+            cardImage={verificationCardImage}
+            hasSubmittedRequest={Boolean(
+              currentUserProfile?.organizationVerificationRequestedAt ||
+                currentUserProfile?.organizationVerificationRequestStatus === 'pending',
+            )}
             isSubmitting={isOrganizationVerificationSubmitting}
-            onOfficerIdChange={setOfficerId}
+            onDivisionChange={setVerificationDivision}
+            onCardNumberChange={setVerificationCardNumber}
+            onCardImageChange={setVerificationCardImage}
             onSubmit={handleOrganizationVerificationSubmit}
-            onBackToLogin={handleBackToLoginFromVerification}
+            onBackToProfile={() => handleUserRouteChange('user')}
           />
         );
       case 'borrow':
@@ -1179,7 +1267,9 @@ function App() {
             categoryId={currentRoute.categoryId}
             items={state.categoryItems[currentRoute.categoryId]}
             onBack={() => handleUserRouteChange('borrow')}
-            onReserve={handlers.handleReserveItem}
+            canReserve={canReserveEquipment}
+            onReserve={handleVerifiedReserveItem}
+            onOpenVerification={() => handleUserRouteChange('verify_organization')}
           />
         ) : (
           <BorrowPage onSelectCategory={handleCategoryRouteChange} />
@@ -1207,10 +1297,13 @@ function App() {
             username={username}
             email={authUser?.email ?? email}
             fullName={currentUserProfile?.fullName ?? ''}
-            officerId={currentUserProfile?.officerId ?? ''}
-            organizationUnit={currentUserProfile?.organizationUnit ?? ''}
+            organizationDivision={currentUserProfile?.organizationDivision ?? ''}
             organizationStatus={currentUserProfile?.organizationStatus ?? 'pending'}
+            organizationVerificationRequestStatus={
+              currentUserProfile?.organizationVerificationRequestStatus
+            }
             userReservations={state.userReservations}
+            onOpenVerification={() => handleUserRouteChange('verify_organization')}
             onOpenChangePassword={() => handleUserRouteChange('change_password')}
             onOpenHistory={() => handleUserRouteChange('history')}
             onLogout={handleUserLogout}
@@ -1307,17 +1400,6 @@ function App() {
 
   if (
     currentRoute.kind === 'user' &&
-    authUser &&
-    authUser.emailVerified &&
-    hasLoadedUserProfile &&
-    !isVerifiedOrganizationProfile(currentUserProfile) &&
-    currentRoute.userTab !== 'verify_organization'
-  ) {
-    return <Navigate to={VERIFY_ORGANIZATION_ROUTE} replace />;
-  }
-
-  if (
-    currentRoute.kind === 'user' &&
     currentRoute.userTab === 'verify_organization' &&
     isVerifiedOrganizationProfile(currentUserProfile)
   ) {
@@ -1343,11 +1425,6 @@ function App() {
       if (currentRoute.view !== 'verify-email') {
         return <Navigate to={VERIFY_EMAIL_ROUTE} replace />;
       }
-    } else if (
-      hasLoadedUserProfile &&
-      !isVerifiedOrganizationProfile(currentUserProfile)
-    ) {
-      return <Navigate to={VERIFY_ORGANIZATION_ROUTE} replace />;
     } else {
       return <Navigate to={USER_HOME_ROUTE} replace />;
     }
@@ -1387,6 +1464,7 @@ function App() {
             onUpdateStatus={handlers.handleUpdateBookingStatus}
             onUpdateAvailableQuantity={handlers.handleUpdateBookingAvailableQuantity}
             onMarkAllNotificationsRead={handlers.handleMarkAllAdminNotificationsRead}
+            onEquipmentCatalogChanged={handleAdminEquipmentCatalogChanged}
             onLogout={handleAdminLogout}
           />
         ) : (

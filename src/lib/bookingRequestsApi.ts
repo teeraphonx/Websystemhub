@@ -12,6 +12,8 @@ interface BackendBookingRequest {
   availableQuantity: number;
   requestedDate: string;
   requestedTime: string;
+  returnDate?: string | null;
+  returnTime?: string | null;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
 }
@@ -30,6 +32,8 @@ interface SubmitBookingRequestInput {
   item: EquipmentItem;
   requestedDate: string;
   requestedTime: string;
+  returnDate?: string;
+  returnTime?: string;
   requestedQuantity?: number;
   availableQuantity?: number;
 }
@@ -77,6 +81,8 @@ function mapBookingRequestToAdminBooking(request: BackendBookingRequest): AdminB
     itemName: request.equipmentName,
     time: request.requestedTime,
     date: normalizeDateKey(request.requestedDate),
+    returnDate: request.returnDate ? normalizeDateKey(request.returnDate) : undefined,
+    returnTime: request.returnTime || undefined,
     requestedQuantity: request.requestedQuantity,
     availableQuantity: request.availableQuantity,
     status: backendStatusToAdminStatus[request.status],
@@ -94,6 +100,8 @@ export async function submitBookingRequest({
   item,
   requestedDate,
   requestedTime,
+  returnDate,
+  returnTime,
   requestedQuantity = 1,
   availableQuantity = requestedQuantity,
 }: SubmitBookingRequestInput): Promise<AdminBooking> {
@@ -109,6 +117,8 @@ export async function submitBookingRequest({
       availableQuantity,
       requestedDate,
       requestedTime,
+      returnDate,
+      returnTime,
     }),
   });
 

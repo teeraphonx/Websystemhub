@@ -8,7 +8,7 @@ const PASSWORD_MIN_LENGTH = 6;
 const PASSWORD_UPPERCASE_PATTERN = /[A-Z]/;
 const PASSWORD_NUMBER_PATTERN = /\d/;
 const PASSWORD_SPECIAL_CHARACTER_PATTERN =
-  /[!@#$%^&*(),.?":{}|<>_\-+=`~;'\[\]\\\/]/;
+  /[!@#$%^&*(),.?":{}|<>_\-+=`~;'[\]\\/]/;
 const FALLBACK_ERROR_MESSAGE = 'ไม่สามารถทำรายการได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง';
 
 export const PASSWORD_REQUIREMENTS_MESSAGE =

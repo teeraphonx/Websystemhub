@@ -5,18 +5,52 @@ import type { AdminBooking, AdminBookingStatus } from '../../types';
 interface AdminBookingTableProps {
   bookings: AdminBooking[];
   selectedDate: string;
+  selectedStatusFilter: AdminBookingStatus | 'all';
   onClearDate: () => void;
+  onClearStatusFilter: () => void;
   onUpdateStatus: (id: string, status: AdminBookingStatus) => void;
   onUpdateAvailableQuantity: (id: string, quantity: number) => void;
 }
 
+const formatScheduleDate = (dateKey: string) => {
+  const parsedDate = new Date(`${dateKey}T00:00:00+07:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return dateKey;
+  }
+
+  return parsedDate.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+  });
+};
+
 export default function AdminBookingTable({
   bookings,
   selectedDate,
+  selectedStatusFilter,
   onClearDate,
+  onClearStatusFilter,
   onUpdateStatus,
   onUpdateAvailableQuantity,
 }: AdminBookingTableProps) {
+  const selectedStatusLabel =
+    selectedStatusFilter === 'รออนุมัติ' ? 'รอตรวจสอบ' : selectedStatusFilter;
+  const selectedStatusChipClass =
+    selectedStatusFilter === 'รออนุมัติ'
+      ? 'border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.12)] text-[#fcd34d]'
+      : selectedStatusFilter === 'อนุมัติแล้ว'
+        ? 'border-[rgba(34,197,94,0.28)] bg-[rgba(34,197,94,0.12)] text-[#86efac]'
+        : 'border-[rgba(239,68,68,0.28)] bg-[rgba(127,29,29,0.22)] text-[#fca5a5]';
+  const emptyStateMessage =
+    selectedStatusFilter !== 'all'
+      ? selectedDate
+        ? `ไม่มีรายการ${selectedStatusLabel}ในวันที่เลือก`
+        : `ไม่มีรายการ${selectedStatusLabel}`
+      : selectedDate
+        ? 'ไม่มีรายการจองในวันที่เลือก'
+        : 'ยังไม่มีรายการจอง';
+
   const handleAvailableQuantityChange = (
     booking: AdminBooking,
     event: ChangeEvent<HTMLInputElement>,
@@ -30,13 +64,13 @@ export default function AdminBookingTable({
   };
 
   return (
-    <div className="systemhub-admin-panel lg:col-span-2 flex flex-col overflow-hidden">
+    <div className="systemhub-admin-panel flex flex-col overflow-hidden">
       <div className="systemhub-admin-panel-header flex flex-col items-start justify-between gap-3 p-5 md:flex-row md:items-center md:p-6">
         <h3 className="flex items-center gap-2 text-[16px] font-black uppercase tracking-widest text-white">
           รายการจองครุภัณฑ์
         </h3>
 
-        <div className="flex w-full items-center gap-3 sm:w-auto">
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:justify-end">
           {selectedDate && (
             <div className="systemhub-admin-date-chip flex items-center gap-2 rounded-xl px-3 py-1.5">
               <CalendarIcon size={14} className="text-[var(--systemhub-accent)]" />
@@ -44,6 +78,22 @@ export default function AdminBookingTable({
                 {new Date(selectedDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
               </span>
               <button type="button" onClick={onClearDate} className="ml-1 text-gray-400 transition-colors hover:text-[var(--systemhub-danger-strong)]">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {selectedStatusFilter !== 'all' && (
+            <div
+              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[12px] font-bold tracking-wide ${selectedStatusChipClass}`}
+            >
+              <span>{selectedStatusLabel}</span>
+              <button
+                type="button"
+                onClick={onClearStatusFilter}
+                className="text-current/70 transition-colors hover:text-white"
+                aria-label="ล้างตัวกรองสถานะรายการจอง"
+              >
                 <X size={14} />
               </button>
             </div>
@@ -61,7 +111,7 @@ export default function AdminBookingTable({
           <div className="systemhub-admin-table-head grid grid-cols-12 gap-4 px-6 py-4 text-[11px] font-black uppercase tracking-widest">
             <div className="col-span-3">โปรไฟล์ / ผู้จอง</div>
             <div className="col-span-3">รหัส / อุปกรณ์</div>
-            <div className="col-span-2">ขอเบิก</div>
+            <div className="col-span-2">จำนวน / ช่วงยืม</div>
             <div className="col-span-2 text-center">สถานะ / จัดการ</div>
             <div className="col-span-2 text-center">เบิกได้</div>
           </div>
@@ -92,7 +142,19 @@ export default function AdminBookingTable({
                   </div>
 
                   <div className="col-span-2 text-[13px] font-bold text-white">
-                    {booking.requestedQuantity} <span className="text-[11px] font-bold text-gray-500">ชิ้น</span>
+                    <p>
+                      {booking.requestedQuantity}{' '}
+                      <span className="text-[11px] font-bold text-gray-500">ชิ้น</span>
+                    </p>
+                    <p className="mt-1 text-[10px] font-bold leading-4 text-gray-500">
+                      ยืม {formatScheduleDate(booking.date)} {booking.time}
+                    </p>
+                    {booking.returnDate && (
+                      <p className="text-[10px] font-bold leading-4 text-gray-500">
+                        คืน {formatScheduleDate(booking.returnDate)}{' '}
+                        {booking.returnTime || 'ไม่ระบุเวลา'}
+                      </p>
+                    )}
                   </div>
 
                   <div className="col-span-2 flex items-center justify-center gap-2">
@@ -145,7 +207,7 @@ export default function AdminBookingTable({
             ) : (
               <div className="systemhub-admin-empty-state flex flex-col items-center gap-3 py-12 text-center text-[13px] font-bold tracking-widest">
                 <CalendarIcon size={32} className="opacity-50" />
-                ไม่มีรายการจองในวันที่เลือก
+                {emptyStateMessage}
               </div>
             )}
           </div>

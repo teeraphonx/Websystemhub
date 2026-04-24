@@ -3,12 +3,14 @@ import type { EquipmentItem } from '../../types';
 
 interface EquipmentCardProps {
   item: EquipmentItem;
+  canReserve: boolean;
   onReserve: (item: EquipmentItem) => void;
   onViewDetails: (item: EquipmentItem) => void;
 }
 
 export default function EquipmentCard({
   item,
+  canReserve,
   onReserve,
   onViewDetails,
 }: EquipmentCardProps) {
@@ -44,19 +46,21 @@ export default function EquipmentCard({
         </button>
         <p className="text-[11px] text-gray-400 font-medium tracking-wide mb-1.5 truncate">{item.sub}</p>
         <p className="text-[10px] text-gray-500 font-bold tracking-widest mb-3 uppercase">รหัส: {item.equipId}</p>
-        <button
-          type="button"
-          onClick={() => onViewDetails(item)}
-          className="mb-4 inline-flex items-center gap-2 rounded-lg border border-[rgba(59,130,246,0.25)] bg-[rgba(37,99,235,0.08)] px-3 py-1.5 text-[10px] font-black tracking-widest text-[var(--systemhub-accent)] transition-colors hover:border-[var(--systemhub-primary-hover)] hover:bg-[rgba(37,99,235,0.18)] hover:text-white focus:outline-none focus:ring-2 focus:ring-[rgba(37,99,235,0.4)]"
-        >
-          <Info size={13} />
-          ดูรายละเอียด
-        </button>
-        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-5 shadow-inner ${isOutOfStock ? 'bg-[#2a1010] border border-[#4b1c1c]' : 'bg-[#061b11] border border-[#0d3320]'}`}>
-          <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.8)] ${isOutOfStock ? 'bg-[#ef4444] shadow-[0_0_5px_rgba(239,68,68,0.8)]' : 'bg-[#22c55e] animate-pulse'}`}></div>
-          <span className={`text-[10px] font-black tracking-wider ${isOutOfStock ? 'text-[#f87171]' : 'text-[#22c55e]'}`}>
-            {isOutOfStock ? 'สต็อกไม่พร้อมจอง' : 'พร้อมให้จอง'}
-          </span>
+        <div className="mb-5 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => onViewDetails(item)}
+            className="flex h-9 min-w-0 items-center justify-center gap-2 rounded-lg border border-[rgba(59,130,246,0.25)] bg-[rgba(37,99,235,0.08)] px-2 text-[10px] font-black tracking-widest text-[var(--systemhub-accent)] transition-colors hover:border-[var(--systemhub-primary-hover)] hover:bg-[rgba(37,99,235,0.18)] hover:text-white focus:outline-none focus:ring-2 focus:ring-[rgba(37,99,235,0.4)]"
+          >
+            <Info size={13} className="shrink-0" />
+            <span className="min-w-0 truncate">ดูรายละเอียด</span>
+          </button>
+          <div className={`flex h-9 min-w-0 items-center justify-center gap-2 rounded-lg px-2 shadow-inner ${isOutOfStock ? 'bg-[#2a1010] border border-[#4b1c1c]' : 'bg-[#061b11] border border-[#0d3320]'}`}>
+            <div className={`h-1.5 w-1.5 shrink-0 rounded-full shadow-[0_0_5px_rgba(34,197,94,0.8)] ${isOutOfStock ? 'bg-[#ef4444] shadow-[0_0_5px_rgba(239,68,68,0.8)]' : 'bg-[#22c55e] animate-pulse'}`}></div>
+            <span className={`min-w-0 truncate text-[10px] font-black tracking-wider ${isOutOfStock ? 'text-[#f87171]' : 'text-[#22c55e]'}`}>
+              {isOutOfStock ? 'สต็อกไม่พร้อมจอง' : 'พร้อมให้จอง'}
+            </span>
+          </div>
         </div>
         <div className="flex items-end justify-between border-t border-[rgba(27,41,71,0.7)] pt-4">
           <div>
@@ -67,10 +71,10 @@ export default function EquipmentCard({
             type="button"
             disabled={isOutOfStock}
             onClick={() => onReserve(item)}
-            className="btn-shine flex items-center gap-2 bg-[var(--systemhub-primary)] text-white px-5 py-2.5 rounded-xl text-[12px] font-black tracking-widest shadow-[0_5px_15px_rgba(37,99,235,0.4)] hover:shadow-[0_8px_20px_rgba(37,99,235,0.6)] hover:bg-[var(--systemhub-primary-hover)] active:scale-95 transition-all disabled:cursor-not-allowed disabled:bg-[rgba(51,65,85,0.8)] disabled:text-gray-400 disabled:shadow-none disabled:hover:bg-[rgba(51,65,85,0.8)]"
+            className={`btn-shine flex items-center gap-2 rounded-xl px-5 py-2.5 text-[12px] font-black tracking-widest shadow-[0_5px_15px_rgba(37,99,235,0.4)] transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-[rgba(51,65,85,0.8)] disabled:text-gray-400 disabled:shadow-none disabled:hover:bg-[rgba(51,65,85,0.8)] ${canReserve ? 'bg-[var(--systemhub-primary)] text-white hover:bg-[var(--systemhub-primary-hover)] hover:shadow-[0_8px_20px_rgba(37,99,235,0.6)]' : 'border border-[rgba(245,158,11,0.36)] bg-[rgba(245,158,11,0.14)] text-[#fcd34d] hover:bg-[rgba(245,158,11,0.22)] hover:text-white'}`}
           >
             <Lock size={14} strokeWidth={2.5} />
-            {isOutOfStock ? 'ของหมด' : 'จองเลย'}
+            {isOutOfStock ? 'ของหมด' : canReserve ? 'จองเลย' : 'ยืนยันก่อนจอง'}
           </button>
         </div>
       </div>

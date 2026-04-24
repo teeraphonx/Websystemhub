@@ -1,7 +1,5 @@
 import {
   ArrowLeft,
-  Building2,
-  CheckCircle,
   Lock,
   Mail,
   RefreshCw,
@@ -23,18 +21,6 @@ const createSteps = (isVerified: boolean) => [
     title: 'ยืนยันอีเมล',
     icon: Mail,
     state: isVerified ? 'done' : 'active',
-  },
-  {
-    label: 'Unit',
-    title: 'บก.สอท.1-5',
-    icon: Building2,
-    state: 'done',
-  },
-  {
-    label: 'Ready',
-    title: 'พร้อมใช้งาน',
-    icon: CheckCircle,
-    state: isVerified ? 'done' : 'next',
   },
 ] as const;
 
@@ -75,14 +61,14 @@ export default function VerifyEmailPage({
         </section>
 
         <section className="systemhub-auth-panel rounded-[2rem] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl sm:p-8">
-          <div className="mb-8 flex items-start justify-between gap-4">
+          <div className="mb-8 flex items-start justify-center gap-4">
             {steps.map((step, index) => {
               const Icon = step.icon;
               const isActive = step.state === 'active';
               const isDone = step.state === 'done';
 
               return (
-                <div key={step.label} className="flex flex-1 items-start">
+                <div key={step.label} className="flex max-w-[220px] flex-1 items-start">
                   <div className="flex min-w-0 flex-1 flex-col items-center text-center">
                     <div
                       className={`mb-3 flex h-12 w-12 items-center justify-center rounded-full border transition-all ${
@@ -120,7 +106,7 @@ export default function VerifyEmailPage({
               ยืนยันอีเมลของคุณ
             </h1>
             <p className="mt-3 max-w-[34rem] text-[14px] leading-7 text-gray-400">
-              ระบบได้สร้างบัญชีและตรวจสอบข้อมูล บก.สอท.1 แล้ว กรุณายืนยันอีเมลนี้ก่อนเข้าใช้งานระบบจองครุภัณฑ์
+              ระบบได้สร้างบัญชีแล้ว กรุณายืนยันอีเมลนี้ก่อนเข้าใช้งานระบบจองครุภัณฑ์
             </p>
           </div>
 

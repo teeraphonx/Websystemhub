@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { CategoryId, CategoryItemsMap, EquipmentItem } from '../types';
+import { getAdminAuthToken } from './adminFirebase';
 import { apiFetch } from './api';
 
 interface EquipmentSummaryResponse {
@@ -34,31 +35,117 @@ interface BackendEquipment {
   assetCode: string | null;
   serialNumber: string | null;
   conditionStatus: string | null;
+  imageUrl?: string | null;
+  photoUrl?: string | null;
+  thumbnailUrl?: string | null;
   totalQuantity: number;
   availableQuantity: number;
 }
 
+interface CreateEquipmentResponse {
+  equipment?: BackendEquipment;
+  item?: BackendEquipment;
+  data?: BackendEquipment;
+  message?: string;
+}
+
+export interface AdminEquipmentListItem {
+  id: number;
+  name: string;
+  category: string;
+  location: string;
+  assetCode: string;
+  serialNumber: string;
+  conditionStatus: EquipmentConditionStatus;
+  totalQuantity: number;
+  availableQuantity: number;
+  imageUrl?: string;
+}
+
+export type EquipmentConditionStatus =
+  | 'normal'
+  | 'damaged'
+  | 'lost'
+  | 'deteriorated'
+  | 'unknown';
+
+export interface CreateEquipmentInput {
+  name: string;
+  category: string;
+  location?: string;
+  assetCode?: string;
+  serialNumber?: string;
+  conditionStatus?: EquipmentConditionStatus;
+  totalQuantity: number;
+  availableQuantity: number;
+}
+
+export interface AdminEquipmentCategoryOption {
+  label: string;
+  value: string;
+  group: string;
+}
+
 const EQUIPMENT_PAGE_SIZE = 200;
 
-const IT_CATEGORY_NAMES = new Set([
+const IT_CATEGORY_NAMES = [
   'บัญชีคุมครุภัณฑ์คอมพิวเตอร์',
   'บัญชีคุมครุภัณฑ์คอมพิวเตอร์ (เครื่องปริ้น)',
   'บัญชีครุภัณฑ์เครื่องมือพิเศษ',
-]);
+];
 
-const AV_CATEGORY_NAMES = new Set([
+const AV_CATEGORY_NAMES = [
   'บัญชีครุภัณฑ์ยุทธภัณฑ์',
   'บัญชีครุภัณฑ์ยานพาหนะ',
-]);
+];
 
-const FURNITURE_CATEGORY_NAMES = new Set([
+const FURNITURE_CATEGORY_NAMES = [
   'บัญชีคุมครุภัณฑ์สำนักงาน',
   'บัญชีครุภัณฑ์งานบ้านงานครัว',
-]);
+];
 
-const INSPECTION_CATEGORY_NAMES = new Set([
+const INSPECTION_CATEGORY_NAMES = [
   'บัญชีครุภัณฑ์โฆษณาและเผยแพร่',
-]);
+];
+
+const IT_CATEGORY_NAME_SET = new Set(IT_CATEGORY_NAMES);
+const AV_CATEGORY_NAME_SET = new Set(AV_CATEGORY_NAMES);
+const FURNITURE_CATEGORY_NAME_SET = new Set(FURNITURE_CATEGORY_NAMES);
+const INSPECTION_CATEGORY_NAME_SET = new Set(INSPECTION_CATEGORY_NAMES);
+
+export const ADMIN_EQUIPMENT_CATEGORY_OPTIONS: AdminEquipmentCategoryOption[] = [
+  ...IT_CATEGORY_NAMES.map((value) => ({
+    value,
+    label: value,
+    group: 'เทคโนโลยีและอุปกรณ์สำนักงาน',
+  })),
+  ...AV_CATEGORY_NAMES.map((value) => ({
+    value,
+    label: value,
+    group: 'ยานพาหนะและยุทธภัณฑ์',
+  })),
+  ...FURNITURE_CATEGORY_NAMES.map((value) => ({
+    value,
+    label: value,
+    group: 'เฟอร์นิเจอร์และงานอาคาร',
+  })),
+  ...INSPECTION_CATEGORY_NAMES.map((value) => ({
+    value,
+    label: value,
+    group: 'สื่อและงานเผยแพร่',
+  })),
+];
+
+export const ADMIN_EQUIPMENT_CONDITION_OPTIONS: Array<{
+  label: string;
+  value: EquipmentConditionStatus;
+}> = [
+  { label: 'ปกติ', value: 'normal' },
+  { label: 'ชำรุด', value: 'damaged' },
+  { label: 'สูญหาย', value: 'lost' },
+  { label: 'เสื่อมสภาพ', value: 'deteriorated' },
+  { label: 'ไม่ระบุ', value: 'unknown' },
+];
 
 const KEYWORD_ICON_MAPPERS: Array<{ test: RegExp; icon: LucideIcon }> = [
   { test: /printer|ปริ้น|เครื่องพิมพ์/i, icon: Printer },
@@ -83,19 +170,19 @@ function createEmptyCategoryItems(): CategoryItemsMap {
 }
 
 function resolveCategoryId(categoryName: string | null): CategoryId {
-  if (categoryName && IT_CATEGORY_NAMES.has(categoryName)) {
+  if (categoryName && IT_CATEGORY_NAME_SET.has(categoryName)) {
     return 'it';
   }
 
-  if (categoryName && AV_CATEGORY_NAMES.has(categoryName)) {
+  if (categoryName && AV_CATEGORY_NAME_SET.has(categoryName)) {
     return 'av';
   }
 
-  if (categoryName && FURNITURE_CATEGORY_NAMES.has(categoryName)) {
+  if (categoryName && FURNITURE_CATEGORY_NAME_SET.has(categoryName)) {
     return 'furniture';
   }
 
-  if (categoryName && INSPECTION_CATEGORY_NAMES.has(categoryName)) {
+  if (categoryName && INSPECTION_CATEGORY_NAME_SET.has(categoryName)) {
     return 'inspection';
   }
 
@@ -172,6 +259,30 @@ function resolveDescription(equipment: BackendEquipment) {
   return `${equipment.name} - ${detailSummary} • ${quantitySummary}`;
 }
 
+function resolveImageUrl(equipment: BackendEquipment) {
+  return (
+    equipment.imageUrl?.trim() ||
+    equipment.photoUrl?.trim() ||
+    equipment.thumbnailUrl?.trim() ||
+    undefined
+  );
+}
+
+function normalizeConditionStatus(
+  value: string | null | undefined,
+): EquipmentConditionStatus {
+  switch (value) {
+    case 'normal':
+    case 'damaged':
+    case 'lost':
+    case 'deteriorated':
+    case 'unknown':
+      return value;
+    default:
+      return 'unknown';
+  }
+}
+
 function mapEquipmentItem(equipment: BackendEquipment): EquipmentItem {
   const categoryId = resolveCategoryId(equipment.category);
 
@@ -181,11 +292,33 @@ function mapEquipmentItem(equipment: BackendEquipment): EquipmentItem {
     name: equipment.name,
     sub: resolveSubtitle(equipment),
     description: resolveDescription(equipment),
+    imageUrl: resolveImageUrl(equipment),
+    imageAlt: `รูปครุภัณฑ์ ${equipment.name}`,
     stock: Number.isFinite(equipment.availableQuantity)
       ? equipment.availableQuantity
       : equipment.totalQuantity,
     tag: resolveTag(equipment),
     icon: resolveIcon(equipment, categoryId),
+  };
+}
+
+function mapAdminEquipmentListItem(
+  equipment: BackendEquipment,
+): AdminEquipmentListItem {
+  return {
+    id: equipment.id,
+    name: equipment.name.trim(),
+    category: equipment.category?.trim() || 'ไม่ระบุหมวดหมู่',
+    location: equipment.location?.trim() || 'ไม่ระบุสถานที่จัดเก็บ',
+    assetCode: equipment.assetCode?.trim() || '',
+    serialNumber: equipment.serialNumber?.trim() || '',
+    conditionStatus: normalizeConditionStatus(equipment.conditionStatus),
+    totalQuantity: normalizeQuantity(equipment.totalQuantity, 0),
+    availableQuantity: normalizeQuantity(
+      equipment.availableQuantity,
+      normalizeQuantity(equipment.totalQuantity, 0),
+    ),
+    imageUrl: resolveImageUrl(equipment),
   };
 }
 
@@ -224,11 +357,18 @@ function createGroupedEquipmentItems(items: EquipmentItem[]): EquipmentItem[] {
     });
   }
 
-  return [...groupedItems.values()].map(({
-    baseSub: _baseSub,
-    groupedCount: _groupedCount,
-    ...item
-  }) => item);
+  return [...groupedItems.values()].map((item) => ({
+    id: item.id,
+    equipId: item.equipId,
+    name: item.name,
+    sub: item.sub,
+    description: item.description,
+    imageUrl: item.imageUrl,
+    imageAlt: item.imageAlt,
+    stock: item.stock,
+    tag: item.tag,
+    icon: item.icon,
+  }));
 }
 
 async function fetchEquipmentPage(offset: number) {
@@ -237,7 +377,7 @@ async function fetchEquipmentPage(offset: number) {
   );
 }
 
-export async function fetchCategoryItemsFromApi(): Promise<CategoryItemsMap> {
+async function fetchAllEquipmentSummary() {
   const firstPage = await fetchEquipmentPage(0);
   const allEquipment = [...firstPage.equipment];
   const total = firstPage.pagination.total;
@@ -250,6 +390,90 @@ export async function fetchCategoryItemsFromApi(): Promise<CategoryItemsMap> {
     const page = await fetchEquipmentPage(offset);
     allEquipment.push(...page.equipment);
   }
+
+  return allEquipment;
+}
+
+const normalizeOptionalText = (value: string | undefined) => {
+  const trimmedValue = value?.trim();
+
+  return trimmedValue ? trimmedValue : null;
+};
+
+const normalizeQuantity = (value: number, fallbackValue: number) => {
+  if (!Number.isFinite(value)) {
+    return fallbackValue;
+  }
+
+  return Math.max(Math.trunc(value), 0);
+};
+
+const resolveCreatedEquipment = (response: CreateEquipmentResponse) =>
+  response.equipment ?? response.item ?? response.data ?? null;
+
+export async function createEquipment(
+  input: CreateEquipmentInput,
+): Promise<EquipmentItem | null> {
+  const totalQuantity = Math.max(normalizeQuantity(input.totalQuantity, 1), 1);
+  const availableQuantity = Math.min(
+    normalizeQuantity(input.availableQuantity, totalQuantity),
+    totalQuantity,
+  );
+  const adminAuthToken = await getAdminAuthToken();
+  const response = await apiFetch<CreateEquipmentResponse>('/api/equipment', {
+    method: 'POST',
+    headers: adminAuthToken
+      ? {
+          Authorization: `Bearer ${adminAuthToken}`,
+        }
+      : undefined,
+    body: JSON.stringify({
+      name: input.name.trim(),
+      category: input.category.trim(),
+      location: normalizeOptionalText(input.location),
+      assetCode: normalizeOptionalText(input.assetCode),
+      serialNumber: normalizeOptionalText(input.serialNumber),
+      conditionStatus: input.conditionStatus ?? 'normal',
+      totalQuantity,
+      availableQuantity,
+    }),
+  });
+  const createdEquipment = resolveCreatedEquipment(response);
+
+  return createdEquipment ? mapEquipmentItem(createdEquipment) : null;
+}
+
+export async function fetchAdminEquipmentList(): Promise<AdminEquipmentListItem[]> {
+  const allEquipment = await fetchAllEquipmentSummary();
+
+  return allEquipment
+    .map(mapAdminEquipmentListItem)
+    .sort((left, right) => {
+      const comparedByName = left.name.localeCompare(right.name, 'th');
+
+      if (comparedByName !== 0) {
+        return comparedByName;
+      }
+
+      return right.id - left.id;
+    });
+}
+
+export async function deleteEquipment(equipmentId: number): Promise<void> {
+  const adminAuthToken = await getAdminAuthToken();
+
+  await apiFetch<unknown>(`/api/equipment/${equipmentId}`, {
+    method: 'DELETE',
+    headers: adminAuthToken
+      ? {
+          Authorization: `Bearer ${adminAuthToken}`,
+        }
+      : undefined,
+  });
+}
+
+export async function fetchCategoryItemsFromApi(): Promise<CategoryItemsMap> {
+  const allEquipment = await fetchAllEquipmentSummary();
 
   const mappedCategoryItems = allEquipment.reduce<CategoryItemsMap>((accumulator, equipment) => {
     const categoryId = resolveCategoryId(equipment.category);

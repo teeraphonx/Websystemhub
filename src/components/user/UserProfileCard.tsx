@@ -1,5 +1,7 @@
 import {
+  AlertTriangle,
   ChevronRight,
+  Clock3,
   History,
   IdCard,
   Key,
@@ -13,10 +15,11 @@ interface UserProfileCardProps {
   username: string;
   email: string;
   fullName: string;
-  officerId: string;
-  organizationUnit: string;
+  organizationDivision: string;
   organizationStatus: 'verified' | 'pending' | 'rejected';
+  organizationVerificationRequestStatus?: 'pending' | 'approved' | 'rejected';
   userReservations: number;
+  onOpenVerification: () => void;
   onOpenChangePassword: () => void;
   onOpenHistory: () => void;
   onLogout: () => void;
@@ -26,15 +29,49 @@ export default function UserProfileCard({
   username,
   email,
   fullName,
-  officerId,
-  organizationUnit,
+  organizationDivision,
   organizationStatus,
+  organizationVerificationRequestStatus,
   userReservations,
+  onOpenVerification,
   onOpenChangePassword,
   onOpenHistory,
   onLogout,
 }: UserProfileCardProps) {
   const isVerified = organizationStatus === 'verified';
+  const hasPendingVerificationRequest =
+    organizationVerificationRequestStatus === 'pending';
+  const isRejected =
+    organizationStatus === 'rejected' ||
+    organizationVerificationRequestStatus === 'rejected';
+  const verificationStatusLabel = isVerified
+    ? 'ยืนยันแล้ว'
+    : hasPendingVerificationRequest
+      ? 'รอแอดมินตรวจสอบ'
+      : isRejected
+        ? 'ไม่ผ่านการตรวจสอบ'
+        : 'ยังไม่ได้ยืนยัน';
+  const verificationStatusDescription = isVerified
+    ? 'บัญชีนี้ผ่านการตรวจสอบตัวตนแล้ว'
+    : hasPendingVerificationRequest
+      ? 'ระบบได้รับคำขอแล้ว กรุณารอแอดมินตรวจสอบ'
+      : isRejected
+        ? 'คำขอก่อนหน้าไม่ผ่าน สามารถส่งข้อมูลใหม่ได้'
+        : 'แนบรูปบัตรและกรอกเลขบัตรเพื่อให้แอดมินตรวจสอบ';
+  const VerificationStatusIcon = isVerified
+    ? ShieldCheck
+    : hasPendingVerificationRequest
+      ? Clock3
+      : isRejected
+        ? AlertTriangle
+        : IdCard;
+  const verificationStatusClass = isVerified
+    ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[#86efac]'
+    : hasPendingVerificationRequest
+      ? 'border-[rgba(96,165,250,0.35)] bg-[rgba(37,99,235,0.14)] text-[var(--systemhub-accent)]'
+      : isRejected
+        ? 'border-[rgba(248,113,113,0.35)] bg-[rgba(127,29,29,0.18)] text-[#fca5a5]'
+        : 'border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.14)] text-[#fcd34d]';
 
   return (
     <div className="relative w-full max-w-[440px] overflow-hidden rounded-[2rem] border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-card)] p-8 shadow-[0_20px_60px_rgba(0,0,0,0.8)]">
@@ -59,29 +96,38 @@ export default function UserProfileCard({
               {fullName}
             </p>
           )}
-          <div className={`inline-flex items-center justify-center gap-2 rounded-full border px-4 py-1.5 text-[12px] font-bold uppercase tracking-widest shadow-inner ${isVerified ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[#86efac]' : 'border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.14)] text-[#fcd34d]'}`}>
-            <ShieldCheck size={14} />
-            {isVerified ? 'Verified' : 'Pending'}
+          <div className={`inline-flex items-center justify-center gap-2 rounded-full border px-4 py-1.5 text-[12px] font-bold uppercase tracking-widest shadow-inner ${verificationStatusClass}`}>
+            <VerificationStatusIcon size={14} />
+            {isVerified
+              ? 'Verified'
+              : hasPendingVerificationRequest
+                ? 'Review'
+                : isRejected
+                  ? 'Rejected'
+                  : 'Pending'}
           </div>
         </div>
       </div>
 
       <div className="mb-5 rounded-2xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-inner)] p-5 shadow-inner">
-        <div className="mb-3 flex items-center gap-3 text-[12px] font-black uppercase tracking-widest text-[var(--systemhub-accent)]">
-          <IdCard size={17} />
-          ยืนยันตัวตน
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 text-[12px] font-black uppercase tracking-widest text-[var(--systemhub-accent)]">
+            <IdCard size={17} />
+            ยืนยันตัวตน
+          </div>
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-black tracking-wider ${verificationStatusClass}`}>
+            <VerificationStatusIcon size={12} />
+            {verificationStatusLabel}
+          </span>
         </div>
+        <p className="mb-4 text-[12px] font-medium leading-6 text-gray-400">
+          {verificationStatusDescription}
+        </p>
         <div className="grid gap-3 text-[13px]">
           <div className="flex items-center justify-between gap-4">
-            <span className="font-bold text-gray-500">หน่วย</span>
+            <span className="font-bold text-gray-500">กองกำกับการ</span>
             <span className="text-right font-bold text-white">
-              {organizationUnit || 'รอยืนยัน'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="font-bold text-gray-500">รหัสเจ้าหน้าที่</span>
-            <span className="text-right font-bold text-white">
-              {officerId || 'รอยืนยัน'}
+              {organizationDivision || 'รอยืนยัน'}
             </span>
           </div>
         </div>
@@ -105,6 +151,26 @@ export default function UserProfileCard({
       </div>
 
       <div className="mb-8 space-y-3">
+        {!isVerified && (
+          <button
+            type="button"
+            onClick={onOpenVerification}
+            className="group flex w-full items-center justify-between rounded-2xl border border-transparent bg-[rgba(16,24,43,0.5)] p-4 transition-all duration-300 hover:border-[var(--systemhub-border)] hover:bg-[rgba(16,24,43,0.92)]"
+          >
+            <div className="flex items-center gap-4">
+              <ShieldCheck size={20} className="text-[var(--systemhub-accent)] transition-colors group-hover:text-white" />
+              <span className="text-[14px] font-bold tracking-wide text-gray-300 transition-colors group-hover:text-white">
+                {hasPendingVerificationRequest
+                  ? 'แก้ไขคำขอยืนยันตัวตน'
+                  : isRejected
+                    ? 'ส่งคำขอใหม่'
+                    : 'ยืนยันตัวตน'}
+              </span>
+            </div>
+            <ChevronRight size={18} className="text-gray-600 transition-transform group-hover:translate-x-1 group-hover:text-[var(--systemhub-accent)]" />
+          </button>
+        )}
+
         <button
           onClick={onOpenChangePassword}
           className="group flex w-full items-center justify-between rounded-2xl border border-transparent bg-[rgba(16,24,43,0.5)] p-4 transition-all duration-300 hover:border-[var(--systemhub-border)] hover:bg-[rgba(16,24,43,0.92)]"

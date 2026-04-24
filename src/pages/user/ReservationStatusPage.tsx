@@ -150,6 +150,11 @@ export default function ReservationStatusPage({
                 ? 'text-red-400'
                 : 'text-gray-500';
             const finalLabel = isRejected ? 'ไม่อนุมัติ' : 'รับอุปกรณ์';
+            const returnScheduleLabel = item.returnDate
+              ? `${formatBookingDate(item.returnDate)} | ${
+                  item.returnTime || 'ไม่ระบุเวลา'
+                }`
+              : 'ยังไม่ระบุวันคืน';
 
             return (
               <div
@@ -239,10 +244,13 @@ export default function ReservationStatusPage({
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">
-                        วันที่ทำรายการ
+                        ช่วงเวลายืม
                       </span>
-                      <span className="text-[13px] text-gray-200 font-black tracking-wide">
-                        {`${formatBookingDate(item.date)} | ${item.time}`}
+                      <span className="text-[13px] text-gray-200 font-black leading-6 tracking-wide">
+                        ยืม: {`${formatBookingDate(item.date)} | ${item.time}`}
+                      </span>
+                      <span className="text-[12px] font-bold leading-5 text-gray-400">
+                        คืน: {returnScheduleLabel}
                       </span>
                     </div>
                   </div>

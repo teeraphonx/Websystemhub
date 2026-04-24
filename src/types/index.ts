@@ -57,12 +57,22 @@ export interface EquipmentItem {
   name: string;
   sub: string;
   description: string;
+  imageUrl?: string;
+  imageAlt?: string;
   stock: number;
   tag: string;
   icon: LucideIcon;
 }
 
 export type CategoryItemsMap = Record<CategoryId, EquipmentItem[]>;
+
+export interface BookingScheduleInput {
+  borrowDate: string;
+  borrowTime: string;
+  returnDate: string;
+  returnTime: string;
+  quantity: number;
+}
 
 export interface HistoryRecord {
   id: string;
@@ -90,6 +100,8 @@ export interface AdminBooking {
   itemName: string;
   time: string;
   date: string;
+  returnDate?: string;
+  returnTime?: string;
   requestedQuantity: number;
   availableQuantity: number;
   status: AdminBookingStatus;

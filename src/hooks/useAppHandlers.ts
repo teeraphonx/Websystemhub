@@ -2,6 +2,7 @@ import type {
   AdminBooking,
   AdminBookingStatus,
   AppState,
+  BookingScheduleInput,
   CategoryId,
   CategoryItemsMap,
   CalendarDayType,
@@ -41,6 +42,16 @@ const createBangkokDateKey = (date: Date) => {
   const day = parts.find((part) => part.type === 'day')?.value ?? '01';
 
   return `${year}-${month}-${day}`;
+};
+
+const formatScheduleTime = (time: string) => {
+  const trimmedTime = time.trim();
+
+  if (!trimmedTime) {
+    return '';
+  }
+
+  return trimmedTime.endsWith('น.') ? trimmedTime : `${trimmedTime} น.`;
 };
 
 const createCalendarDateFromDateKey = (dateKey: string) => {
@@ -181,7 +192,10 @@ export const useAppHandlers = (state: AppState) => {
     }
   };
 
-  const handleReserveItem = async (item: EquipmentItem) => {
+  const handleReserveItem = async (
+    item: EquipmentItem,
+    schedule?: BookingScheduleInput,
+  ) => {
     if (item.stock <= 0) {
       state.setModalState(
         createWarningModal(
@@ -193,10 +207,78 @@ export const useAppHandlers = (state: AppState) => {
     }
 
     const now = new Date();
+    const todayDateKey = createBangkokDateKey(now);
+    const requestedDate = schedule?.borrowDate.trim() || todayDateKey;
+    const returnDate = schedule?.returnDate.trim();
+    const requestedTime =
+      formatScheduleTime(schedule?.borrowTime ?? '') ||
+      `${thaiTimeFormatter.format(now)} น.`;
+    const normalizedReturnTime = returnDate
+      ? formatScheduleTime(schedule?.returnTime ?? '') || undefined
+      : undefined;
+    const requestedQuantity = Math.trunc(schedule?.quantity ?? 1);
+
+    if (requestedDate < todayDateKey) {
+      state.setModalState(
+        createWarningModal(
+          'วันที่ยืมไม่ถูกต้อง',
+          'กรุณาเลือกวันที่ยืมครุภัณฑ์เป็นวันนี้หรือวันถัดไป',
+        ),
+      );
+      return;
+    }
+
+    if (schedule && !returnDate) {
+      state.setModalState(
+        createWarningModal(
+          'วันที่คืนไม่ถูกต้อง',
+          'กรุณาเลือกวันที่คืนครุภัณฑ์ก่อนส่งคำขอจอง',
+        ),
+      );
+      return;
+    }
+
+    if (returnDate && returnDate < requestedDate) {
+      state.setModalState(
+        createWarningModal(
+          'ช่วงเวลายืมไม่ถูกต้อง',
+          'วันที่คืนต้องเป็นวันเดียวกับวันที่ยืมหรือหลังจากวันที่ยืม',
+        ),
+      );
+      return;
+    }
+
+    if (
+      returnDate === requestedDate &&
+      schedule?.borrowTime &&
+      schedule.returnTime &&
+      schedule.returnTime < schedule.borrowTime
+    ) {
+      state.setModalState(
+        createWarningModal(
+          'ช่วงเวลายืมไม่ถูกต้อง',
+          'ถ้ายืมและคืนในวันเดียวกัน เวลาคืนต้องไม่ก่อนเวลาเริ่มยืม',
+        ),
+      );
+      return;
+    }
+
+    if (
+      !Number.isFinite(requestedQuantity) ||
+      requestedQuantity < 1 ||
+      requestedQuantity > item.stock
+    ) {
+      state.setModalState(
+        createWarningModal(
+          'จำนวนไม่ถูกต้อง',
+          `กรุณาเลือกจำนวนจองตั้งแต่ 1 ถึง ${item.stock} ชิ้น`,
+        ),
+      );
+      return;
+    }
+
     const requesterName = state.username.trim() || 'ผู้ใช้งานระบบ';
     const requesterEmail = state.email.trim() || undefined;
-    const requestedDate = createBangkokDateKey(now);
-    const requestedTime = `${thaiTimeFormatter.format(now)} น.`;
     let nextBooking: AdminBooking;
 
     try {
@@ -206,8 +288,10 @@ export const useAppHandlers = (state: AppState) => {
         item,
         requestedDate,
         requestedTime,
-        requestedQuantity: 1,
-        availableQuantity: 1,
+        returnDate,
+        returnTime: normalizedReturnTime,
+        requestedQuantity,
+        availableQuantity: requestedQuantity,
       });
     } catch (error) {
       console.error('Failed to submit booking request.', error);
@@ -238,18 +322,24 @@ export const useAppHandlers = (state: AppState) => {
         id: `booking-${nextBooking.id}`,
         bookingId: nextBooking.id,
         title: 'มีคำขอจองใหม่',
-        desc: `${requesterName} จอง ${item.name}`,
+        desc: `${requesterName} จอง ${item.name} ${requestedQuantity} ชิ้น`,
         time: thaiTimeFormatter.format(now),
         isRead: false,
       },
       ...notifications.filter((notification) => notification.id !== `booking-${nextBooking.id}`),
     ]);
     state.setTotalReservations((count) => count + 1);
-    state.setUserReservations((count) => count + 1);
+    state.setUserReservations((count) => count + requestedQuantity);
     state.setModalState(
       createSuccessModal(
         'ทำรายการสำเร็จ',
-        `คุณได้ทำการจอง ${item.name} เรียบร้อยแล้ว`,
+        `คุณได้ส่งคำขอจอง ${item.name} จำนวน ${requestedQuantity} ชิ้น วันที่ยืม ${requestedDate} เวลา ${requestedTime}${
+          returnDate
+            ? ` ถึงวันที่คืน ${returnDate}${
+                normalizedReturnTime ? ` เวลา ${normalizedReturnTime}` : ''
+              }`
+            : ''
+        } เรียบร้อยแล้ว`,
       ),
     );
 

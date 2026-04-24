@@ -1,29 +1,47 @@
-import type { FormEventHandler } from 'react';
+import type { ChangeEvent, FormEventHandler } from 'react';
 import {
   ArrowLeft,
   Building2,
   CheckCircle,
+  FileImage,
   IdCard,
   ShieldCheck,
+  Upload,
 } from 'lucide-react';
 
 interface VerifyOrganizationPageProps {
   email: string;
-  officerId: string;
+  division: string;
+  cardNumber: string;
+  cardImage: File | null;
+  hasSubmittedRequest: boolean;
   isSubmitting: boolean;
-  onOfficerIdChange: (value: string) => void;
+  onDivisionChange: (value: string) => void;
+  onCardNumberChange: (value: string) => void;
+  onCardImageChange: (file: File | null) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
-  onBackToLogin: () => void;
+  onBackToProfile: () => void;
 }
+
+const formatFileSize = (size: number) => `${(size / (1024 * 1024)).toFixed(2)} MB`;
 
 export default function VerifyOrganizationPage({
   email,
-  officerId,
+  division,
+  cardNumber,
+  cardImage,
+  hasSubmittedRequest,
   isSubmitting,
-  onOfficerIdChange,
+  onDivisionChange,
+  onCardNumberChange,
+  onCardImageChange,
   onSubmit,
-  onBackToLogin,
+  onBackToProfile,
 }: VerifyOrganizationPageProps) {
+  const handleCardImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+    onCardImageChange(event.target.files?.[0] ?? null);
+  };
+
   return (
     <div className="flex min-h-[calc(100vh-9rem)] w-full animate-fade-up items-center justify-center px-2 py-8">
       <div className="grid w-full max-w-[980px] gap-8 lg:grid-cols-[0.88fr_1.12fr] lg:items-center">
@@ -58,11 +76,25 @@ export default function VerifyOrganizationPage({
               ยืนยันตัวตน บก.สอท.1
             </h1>
             <p className="mt-3 max-w-[34rem] text-[14px] leading-7 text-gray-400">
-              บัญชีของคุณสมัครและยืนยันอีเมลแล้ว เหลือเพียงยืนยันรหัสเจ้าหน้าที่เพื่อเปิดใช้งานระบบจองครุภัณฑ์
+              บัญชีของคุณสมัครและยืนยันอีเมลแล้ว กรุณาระบุกองกำกับการ พร้อมส่งรูปบัตรและเลขบัตรเพื่อให้แอดมินตรวจสอบก่อนเปิดใช้งานระบบจองครุภัณฑ์
             </p>
           </div>
 
           <form className="space-y-5" onSubmit={onSubmit}>
+            {hasSubmittedRequest && (
+              <div className="flex items-start gap-3 rounded-2xl border border-[rgba(34,197,94,0.32)] bg-[rgba(34,197,94,0.1)] p-4 text-[#bbf7d0]">
+                <CheckCircle size={20} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-[13px] font-black tracking-wide text-white">
+                    ส่งคำขอยืนยันตัวตนแล้ว
+                  </p>
+                  <p className="mt-1 text-[12px] leading-6 text-[#86efac]">
+                    รอแอดมินตรวจสอบข้อมูล หากต้องแก้ไขสามารถส่งคำขอใหม่ทับรายการเดิมได้
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-2xl border border-[var(--systemhub-border)] bg-[var(--systemhub-surface-inner)] p-4 shadow-inner">
               <label className="mb-2 block text-[11px] font-black uppercase tracking-widest text-gray-500">
                 Email
@@ -77,18 +109,64 @@ export default function VerifyOrganizationPage({
 
             <div className="space-y-2 text-left group">
               <label className="ml-1 flex items-center gap-3 text-[13px] font-bold uppercase tracking-widest text-gray-500 transition-colors group-focus-within:text-[var(--systemhub-accent)]">
-                <IdCard size={15} />
-                <span>รหัสเจ้าหน้าที่</span>
+                <Building2 size={15} />
+                <span>กองกำกับการ</span>
               </label>
               <input
                 type="text"
-                value={officerId}
-                autoComplete="off"
+                value={division}
+                autoComplete="organization"
                 disabled={isSubmitting}
-                onChange={(event) => onOfficerIdChange(event.target.value)}
-                placeholder="กรอกรหัสหรือเลขประจำตัวเจ้าหน้าที่"
+                onChange={(event) => onDivisionChange(event.target.value)}
+                placeholder="เช่น กก.1 บก.สอท.1"
                 className="systemhub-auth-input w-full rounded-xl px-5 py-3.5 text-[14px] text-white outline-none transition-all disabled:cursor-not-allowed disabled:opacity-70"
               />
+            </div>
+
+            <div className="space-y-2 text-left group">
+              <label className="ml-1 flex items-center gap-3 text-[13px] font-bold uppercase tracking-widest text-gray-500 transition-colors group-focus-within:text-[var(--systemhub-accent)]">
+                <IdCard size={15} />
+                <span>เลขบัตร</span>
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={cardNumber}
+                autoComplete="off"
+                disabled={isSubmitting}
+                onChange={(event) => onCardNumberChange(event.target.value)}
+                placeholder="กรอกเลขบัตร"
+                className="systemhub-auth-input w-full rounded-xl px-5 py-3.5 text-[14px] text-white outline-none transition-all disabled:cursor-not-allowed disabled:opacity-70"
+              />
+            </div>
+
+            <div className="space-y-2 text-left">
+              <label className="ml-1 flex items-center gap-3 text-[13px] font-bold uppercase tracking-widest text-gray-500">
+                <FileImage size={15} />
+                <span>รูปบัตร</span>
+              </label>
+              <label className={`flex min-h-28 cursor-pointer items-center gap-4 rounded-2xl border border-dashed border-[rgba(96,165,250,0.42)] bg-[rgba(37,99,235,0.08)] p-4 transition-all hover:border-[var(--systemhub-accent)] hover:bg-[rgba(37,99,235,0.14)] ${isSubmitting ? 'pointer-events-none opacity-70' : ''}`}>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  disabled={isSubmitting}
+                  onChange={handleCardImageChange}
+                  className="sr-only"
+                />
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[rgba(96,165,250,0.34)] bg-[rgba(15,23,42,0.72)] text-[var(--systemhub-accent)]">
+                  <Upload size={24} />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-[14px] font-black text-white">
+                    {cardImage ? cardImage.name : 'เลือกรูปบัตร'}
+                  </p>
+                  <p className="mt-1 text-[12px] font-bold text-gray-500">
+                    {cardImage
+                      ? formatFileSize(cardImage.size)
+                      : 'JPG, PNG, WebP, HEIC ไม่เกิน 5MB'}
+                  </p>
+                </div>
+              </label>
             </div>
 
             <button
@@ -97,18 +175,22 @@ export default function VerifyOrganizationPage({
               className="btn-shine flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--systemhub-primary)] px-5 py-4 text-[13px] font-black tracking-widest text-white shadow-[0_8px_24px_rgba(37,99,235,0.36)] transition-all hover:bg-[var(--systemhub-primary-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-65"
             >
               <ShieldCheck size={17} />
-              {isSubmitting ? 'กำลังตรวจสอบ...' : 'ยืนยันตัวตน'}
+              {isSubmitting
+                ? 'กำลังส่งคำขอ...'
+                : hasSubmittedRequest
+                  ? 'ส่งคำขออีกครั้ง'
+                  : 'ส่งคำขอยืนยันตัวตน'}
             </button>
           </form>
 
           <button
             type="button"
             disabled={isSubmitting}
-            onClick={onBackToLogin}
+            onClick={onBackToProfile}
             className="mx-auto mt-7 flex items-center justify-center gap-2 text-[13px] font-bold text-gray-400 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <ArrowLeft size={16} />
-            กลับไปเข้าสู่ระบบ
+            กลับไปหน้าข้อมูลผู้ใช้
           </button>
         </section>
       </div>
