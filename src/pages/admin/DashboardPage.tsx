@@ -990,7 +990,6 @@ export default function DashboardPage({
       <AdminEquipmentCreateModal
         isOpen={isEquipmentCreateOpen}
         onClose={() => setIsEquipmentCreateOpen(false)}
-        onCreated={syncEquipmentCatalog}
       />
 
       {SHOW_EQUIPMENT_DELETE_PANEL && isEquipmentDeleteOpen && (

@@ -19,7 +19,6 @@ import {
 interface AdminEquipmentCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreated?: () => Promise<void> | void;
 }
 
 const DEFAULT_CATEGORY = ADMIN_EQUIPMENT_CATEGORY_OPTIONS[0]?.value ?? '';
@@ -77,7 +76,6 @@ const normalizePositiveInteger = (value: string, fallbackValue: number) => {
 export default function AdminEquipmentCreateModal({
   isOpen,
   onClose,
-  onCreated,
 }: AdminEquipmentCreateModalProps) {
   const [formState, setFormState] = useState<CreateEquipmentInput>(
     createInitialFormState,
@@ -139,14 +137,8 @@ export default function AdminEquipmentCreateModal({
       const createdEquipment = await createEquipment(formState);
       const createdEquipmentName = createdEquipment?.name ?? formState.name.trim();
 
-      try {
-        await onCreated?.();
-      } catch (refreshError) {
-        console.error('Failed to refresh equipment catalog after create.', refreshError);
-      }
-
       setSuccessMessage(
-        `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว รายการใหม่จะถูกรีเฟรชกลับเข้าหน้าแอดมินและหน้าจองอัตโนมัติ`,
+        `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว รายการใหม่จะซิงก์กลับเข้าหน้าจองอัตโนมัติเมื่อระบบรีเฟรชข้อมูลรอบถัดไป`,
       );
       setFormState(createInitialFormState());
     } catch (error) {
@@ -194,9 +186,7 @@ export default function AdminEquipmentCreateModal({
                   เพิ่มครุภัณฑ์เข้าระบบ
                 </h3>
                 <p className="mt-2 max-w-[42rem] text-[13px] font-medium leading-6 text-gray-400">
-                  ฟอร์มนี้จะส่งข้อมูลไป backend ผ่าน `VITE_API_URL`
-                  พร้อมแนบ Firebase admin token ของผู้ดูแลที่กำลังล็อกอินอยู่
-                  เพื่อให้ backend บันทึกลงฐานข้อมูลจริง
+                  กรอกแบบฟอร์มเพื่อเพิ่มครุภัณฑ์
                 </p>
               </div>
             </div>
