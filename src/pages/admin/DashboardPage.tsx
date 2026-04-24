@@ -270,7 +270,7 @@ export default function DashboardPage({
     WEEKDAY_LABELS.map(() => 0),
   );
   const notificationRef = useRef<HTMLDivElement | null>(null);
-  const equipmentListRef = useRef<HTMLDivElement | null>(null);
+  const equipmentDeleteModalRef = useRef<HTMLDivElement | null>(null);
   const isDashboardMountedRef = useRef(false);
   const userProfilesRequestRef = useRef(0);
   const equipmentRequestRef = useRef(0);
@@ -399,6 +399,10 @@ export default function DashboardPage({
   const visibleEquipmentPages = useMemo(
     () => buildVisibleEquipmentPages(currentEquipmentPage, totalEquipmentPages),
     [currentEquipmentPage, totalEquipmentPages],
+  );
+  const equipmentPageOptions = useMemo(
+    () => Array.from({ length: totalEquipmentPages }, (_, index) => index + 1),
+    [totalEquipmentPages],
   );
   const totalEquipmentQuantity = useMemo(
     () =>
@@ -731,7 +735,7 @@ export default function DashboardPage({
       return;
     }
 
-    equipmentListRef.current?.scrollTo({ top: 0 });
+    equipmentDeleteModalRef.current?.scrollTo({ top: 0 });
   }, [currentEquipmentPage, isEquipmentDeleteOpen]);
 
   useEffect(() => {
@@ -1004,7 +1008,10 @@ export default function DashboardPage({
             }
           }}
         >
-          <div className="systemhub-auth-panel relative flex max-h-[calc(100vh-2.5rem)] w-full max-w-[1120px] flex-col overflow-hidden rounded-[2rem] shadow-[0_28px_90px_rgba(0,0,0,0.76)]">
+          <div
+            ref={equipmentDeleteModalRef}
+            className="systemhub-auth-panel custom-scrollbar relative flex max-h-[calc(100vh-2.5rem)] w-full max-w-[1120px] flex-col overflow-x-hidden overflow-y-auto rounded-[2rem] shadow-[0_28px_90px_rgba(0,0,0,0.76)]"
+          >
             <div className="border-b border-[rgba(27,41,71,0.72)] px-6 py-6 sm:px-8">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -1103,6 +1110,26 @@ export default function DashboardPage({
                   </div>
                 )}
 
+                {filteredAdminEquipment.length > 0 && totalEquipmentPages > 1 && (
+                  <label className="inline-flex items-center gap-2 rounded-full border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.7)] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-gray-300">
+                    เลือกหน้า
+                    <select
+                      value={currentEquipmentPage}
+                      onChange={(event) => {
+                        setEquipmentPage(Number(event.target.value));
+                      }}
+                      aria-label="เลือกหน้ารายการครุภัณฑ์"
+                      className="rounded-full border border-[rgba(59,130,246,0.24)] bg-[rgba(15,23,42,0.92)] px-3 py-1 text-[11px] font-black text-white outline-none transition-colors hover:border-[rgba(96,165,250,0.36)]"
+                    >
+                      {equipmentPageOptions.map((pageNumber) => (
+                        <option key={pageNumber} value={pageNumber}>
+                          {pageNumber}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
                 {filteredAdminEquipment.length !== adminEquipment.length && (
                   <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.7)] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-gray-300">
                     จากทั้งหมด {adminEquipment.length.toLocaleString()} รายการ
@@ -1136,7 +1163,7 @@ export default function DashboardPage({
               )}
             </div>
 
-            <div className="min-h-0 flex-1 px-6 py-6 sm:px-8">
+            <div className="px-6 py-6 sm:px-8">
               {isEquipmentLoading && adminEquipment.length === 0 ? (
                 <div className="flex h-full items-center justify-center rounded-[1.5rem] border border-[rgba(27,41,71,0.6)] bg-[rgba(10,15,28,0.68)] px-5 py-10 text-center">
                   <div>
@@ -1164,17 +1191,14 @@ export default function DashboardPage({
                   </div>
                 </div>
               ) : (
-                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-[rgba(27,41,71,0.6)] bg-[rgba(10,15,28,0.68)]">
+                <div className="flex flex-col overflow-hidden rounded-[1.5rem] border border-[rgba(27,41,71,0.6)] bg-[rgba(10,15,28,0.68)]">
                   <div className="grid grid-cols-1 gap-4 border-b border-[rgba(27,41,71,0.65)] px-5 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-gray-500 lg:grid-cols-[minmax(0,1.6fr)_minmax(240px,0.8fr)_auto]">
                     <span>รายละเอียดครุภัณฑ์</span>
                     <span>สต็อกและสถานะ</span>
                     <span className="text-right">การจัดการ</span>
                   </div>
 
-                  <div
-                    ref={equipmentListRef}
-                    className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y"
-                  >
+                  <div className="touch-pan-y">
                     {paginatedAdminEquipment.map((equipment) => {
                       const bookingKey = getEquipmentBookingKey(equipment);
                       const activeBookingCount =
