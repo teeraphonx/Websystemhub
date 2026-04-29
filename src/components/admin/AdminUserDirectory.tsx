@@ -62,6 +62,13 @@ const getDisplayName = (user: UserProfileRecord) =>
 const getAvatarLabel = (user: UserProfileRecord) =>
   getDisplayName(user).trim().slice(0, 2).toUpperCase() || 'U';
 
+const getProfileIdentityLabel = (user: UserProfileRecord) =>
+  user.fullName?.trim() ||
+  (user.organizationVerificationRequestStatus === 'pending' &&
+  user.organizationVerificationRequestedAt
+    ? 'ส่งรูปบัตรแล้ว รอตรวจสอบ'
+    : user.username?.trim() || user.email?.trim() || 'ยังไม่ระบุชื่อจริง');
+
 const isBookingFallbackUser = (user: UserProfileRecord) =>
   user.uid.startsWith('booking-email:') || user.uid.startsWith('booking-user:');
 
@@ -430,7 +437,7 @@ export default function AdminUserDirectory({
 
                     <div className="col-span-2 min-w-0">
                       <p className="truncate text-[13px] font-bold text-gray-200">
-                        {user.fullName || user.organizationDivision || 'ยังไม่ระบุชื่อจริง'}
+                        {getProfileIdentityLabel(user)}
                       </p>
                       <p className="mt-1 truncate text-[10px] font-bold text-gray-500">
                         {user.organizationDivision || 'ยังไม่ระบุกองกำกับการ'} ·{' '}

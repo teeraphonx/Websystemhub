@@ -104,7 +104,21 @@ const PROMO_AFTER_AUTH_BUFFER_MS = 500;
 const USER_ACTIVITY_HEARTBEAT_MS = 60000;
 const CATEGORY_IDS: CategoryId[] = ['it', 'av', 'furniture', 'inspection'];
 const HISTORY_TIME_PATTERN = /(\d{1,2}:\d{2})/;
-const DEFAULT_PICKUP_LOCATION = 'ฝ่ายอำนวยการ';
+const DEFAULT_PICKUP_LOCATION = 'ฝ่ายอำนวยการ | งานส่งกำลังบำรุงและงานเทคโนฯ';
+const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
+
+const isEnvFlagEnabled = (value: string | undefined, defaultValue: boolean) => {
+  if (typeof value !== 'string') {
+    return defaultValue;
+  }
+
+  return TRUTHY_ENV_VALUES.has(value.trim().toLowerCase());
+};
+
+const ALLOW_UNVERIFIED_RESERVATIONS = isEnvFlagEnabled(
+  import.meta.env.VITE_BYPASS_ORGANIZATION_VERIFICATION,
+  false,
+);
 
 const getEmailVerificationActionSettings = () => ({
   url: `${window.location.origin}${VERIFY_EMAIL_ROUTE}`,
@@ -1105,7 +1119,9 @@ function App() {
       }
     };
 
-  const canReserveEquipment = isVerifiedOrganizationProfile(currentUserProfile);
+  const canReserveEquipment =
+    ALLOW_UNVERIFIED_RESERVATIONS ||
+    isVerifiedOrganizationProfile(currentUserProfile);
   const handleVerifiedReserveItem = (
     item: EquipmentItem,
     schedule?: BookingScheduleInput,

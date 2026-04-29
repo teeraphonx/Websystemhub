@@ -68,8 +68,25 @@ const createUserAvatar = (label: string) => {
 };
 
 const normalizeDateKey = (value: string) => value.slice(0, 10);
+const normalizeOptionalDateKey = (value?: string | null) => {
+  const trimmedValue = value?.trim();
 
-function mapBookingRequestToAdminBooking(request: BackendBookingRequest): AdminBooking {
+  return trimmedValue ? normalizeDateKey(trimmedValue) : undefined;
+};
+
+const normalizeOptionalTime = (value?: string | null) => {
+  const trimmedValue = value?.trim();
+
+  return trimmedValue || undefined;
+};
+
+function mapBookingRequestToAdminBooking(
+  request: BackendBookingRequest,
+  fallbackSchedule?: Pick<
+    SubmitBookingRequestInput,
+    'requestedDate' | 'requestedTime' | 'returnDate' | 'returnTime'
+  >,
+): AdminBooking {
   const displayName = request.requesterName || request.requesterEmail || 'ผู้ใช้งานระบบ';
 
   return {
@@ -79,10 +96,17 @@ function mapBookingRequestToAdminBooking(request: BackendBookingRequest): AdminB
     userAvatar: createUserAvatar(displayName),
     itemId: request.equipmentPublicId,
     itemName: request.equipmentName,
-    time: request.requestedTime,
-    date: normalizeDateKey(request.requestedDate),
-    returnDate: request.returnDate ? normalizeDateKey(request.returnDate) : undefined,
-    returnTime: request.returnTime || undefined,
+    time: normalizeOptionalTime(request.requestedTime) ?? fallbackSchedule?.requestedTime ?? '',
+    date:
+      normalizeOptionalDateKey(request.requestedDate) ??
+      normalizeOptionalDateKey(fallbackSchedule?.requestedDate) ??
+      '',
+    returnDate:
+      normalizeOptionalDateKey(request.returnDate) ??
+      normalizeOptionalDateKey(fallbackSchedule?.returnDate),
+    returnTime:
+      normalizeOptionalTime(request.returnTime) ??
+      normalizeOptionalTime(fallbackSchedule?.returnTime),
     requestedQuantity: request.requestedQuantity,
     availableQuantity: request.availableQuantity,
     status: backendStatusToAdminStatus[request.status],
@@ -91,7 +115,9 @@ function mapBookingRequestToAdminBooking(request: BackendBookingRequest): AdminB
 
 export async function fetchBookingRequests(): Promise<AdminBooking[]> {
   const response = await apiFetch<BookingRequestsResponse>('/api/booking-requests?limit=500');
-  return response.bookingRequests.map(mapBookingRequestToAdminBooking);
+  return response.bookingRequests.map((request) =>
+    mapBookingRequestToAdminBooking(request),
+  );
 }
 
 export async function submitBookingRequest({
@@ -122,7 +148,12 @@ export async function submitBookingRequest({
     }),
   });
 
-  return mapBookingRequestToAdminBooking(response.bookingRequest);
+  return mapBookingRequestToAdminBooking(response.bookingRequest, {
+    requestedDate,
+    requestedTime,
+    returnDate,
+    returnTime,
+  });
 }
 
 export async function updateBookingRequestStatus(

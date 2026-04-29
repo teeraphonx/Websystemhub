@@ -69,6 +69,14 @@ export type EquipmentConditionStatus =
   | 'deteriorated'
   | 'unknown';
 
+export const ADMIN_EQUIPMENT_IMAGE_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+export const ADMIN_EQUIPMENT_IMAGE_ACCEPT =
+  'image/jpeg,image/png,image/webp,image/heic,image/heif';
+
+const ALLOWED_ADMIN_EQUIPMENT_IMAGE_TYPES = new Set(
+  ADMIN_EQUIPMENT_IMAGE_ACCEPT.split(','),
+);
+
 export interface CreateEquipmentInput {
   name: string;
   category: string;
@@ -411,6 +419,20 @@ const normalizeQuantity = (value: number, fallbackValue: number) => {
 const resolveCreatedEquipment = (response: CreateEquipmentResponse) =>
   response.equipment ?? response.item ?? response.data ?? null;
 
+export const validateEquipmentImageFile = (file: File | null) => {
+  if (!file) {
+    return;
+  }
+
+  if (!ALLOWED_ADMIN_EQUIPMENT_IMAGE_TYPES.has(file.type)) {
+    throw new Error('รองรับเฉพาะไฟล์รูป JPG, PNG, WebP, HEIC หรือ HEIF');
+  }
+
+  if (file.size > ADMIN_EQUIPMENT_IMAGE_MAX_SIZE_BYTES) {
+    throw new Error('ขนาดไฟล์รูปครุภัณฑ์ต้องไม่เกิน 5MB');
+  }
+};
+
 export async function createEquipment(
   input: CreateEquipmentInput,
 ): Promise<EquipmentItem | null> {
@@ -441,6 +463,27 @@ export async function createEquipment(
   const createdEquipment = resolveCreatedEquipment(response);
 
   return createdEquipment ? mapEquipmentItem(createdEquipment) : null;
+}
+
+export async function uploadEquipmentImage(
+  equipmentId: number,
+  imageFile: File,
+): Promise<void> {
+  validateEquipmentImageFile(imageFile);
+
+  const adminAuthToken = await getAdminAuthToken();
+  const formData = new FormData();
+  formData.append('image', imageFile, imageFile.name);
+
+  await apiFetch<unknown>(`/api/equipment/${equipmentId}/image`, {
+    method: 'POST',
+    headers: adminAuthToken
+      ? {
+          Authorization: `Bearer ${adminAuthToken}`,
+        }
+      : undefined,
+    body: formData,
+  });
 }
 
 export async function fetchAdminEquipmentList(): Promise<AdminEquipmentListItem[]> {

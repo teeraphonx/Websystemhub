@@ -7,7 +7,7 @@ export const activeStatus: ActiveStatusRecord[] = [
     itemName: 'MacBook Pro M3',
     date: '13 มี.ค. 2569 | 14:00 น.',
     status: 'รอตรวจสอบ',
-    location: 'ฝ่ายอำนวยการ',
+    location: 'ฝ่ายอำนวยการ | งานส่งกำลังบำรุงและงานเทคโนฯ',
     icon: Laptop,
   },
   {
@@ -15,7 +15,7 @@ export const activeStatus: ActiveStatusRecord[] = [
     itemName: 'Toyota Hilux Revo',
     date: '12 มี.ค. 2569 | 09:30 น.',
     status: 'อนุมัติแล้ว',
-    location: 'ฝ่ายอำนวยการ',
+    location: 'ฝ่ายอำนวยการ | งานส่งกำลังบำรุงและงานเทคโนฯ',
     icon: Truck,
   },
 ];

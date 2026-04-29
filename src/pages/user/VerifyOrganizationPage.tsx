@@ -54,7 +54,7 @@ export default function VerifyOrganizationPage({
             <div className="absolute bottom-24 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-2xl border border-[rgba(34,197,94,0.32)] bg-[rgba(34,197,94,0.12)] px-4 py-3 text-[#86efac]">
               <CheckCircle size={18} />
               <span className="text-[11px] font-black uppercase tracking-widest">
-                BKSOT 1
+                CCID 1
               </span>
             </div>
             <div className="absolute left-2 top-28 flex h-14 w-14 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.88)] text-gray-300 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">

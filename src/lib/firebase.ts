@@ -57,6 +57,26 @@ export interface UserProfileRecord {
 }
 
 type OrganizationStatus = UserProfileRecord['organizationStatus'];
+type OrganizationVerificationRequestStatus =
+  UserProfileRecord['organizationVerificationRequestStatus'];
+
+export interface OrganizationVerificationRequestRecord {
+  uid: string;
+  email: string;
+  username: string;
+  organizationDivision: string;
+  cardNumber: string;
+  cardNumberLast4: string;
+  cardImagePath: string;
+  cardImageUrl: string;
+  cardImageName: string;
+  cardImageContentType: string;
+  cardImageSize: number;
+  status: NonNullable<OrganizationVerificationRequestStatus>;
+  submittedAt: number;
+  updatedAt: number;
+  reviewedAt?: number;
+}
 
 interface OrganizationMemberRecord {
   email?: string;
@@ -66,6 +86,9 @@ interface OrganizationMemberRecord {
   department?: string;
   active?: boolean;
 }
+
+type OrganizationVerificationRequestDocument =
+  Partial<OrganizationVerificationRequestRecord>;
 
 const USERNAME_TAKEN_MESSAGE = 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว';
 const USERNAME_NOT_FOUND_MESSAGE = 'ไม่พบชื่อผู้ใช้นี้ในระบบ';
@@ -117,6 +140,10 @@ const normalizeOfficerId = (value: string) => value.trim().toUpperCase();
 const normalizeDivision = (value: string) => value.trim();
 const normalizeCardNumber = (value: string) =>
   value.trim().replace(/\s+/g, '').toUpperCase();
+const normalizeTimestamp = (value: unknown, fallbackValue = 0) =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : fallbackValue;
 
 const looksLikeEmail = (value: string) => value.includes('@');
 
@@ -151,6 +178,67 @@ const normalizeOrganizationMember = (
   department: data.department?.trim() ?? '',
   active: data.active === true,
 });
+
+const normalizeVerificationRequestStatus = (
+  value: OrganizationVerificationRequestStatus | string | undefined,
+) => {
+  switch (value) {
+    case 'approved':
+    case 'rejected':
+    case 'pending':
+      return value;
+    default:
+      return 'pending';
+  }
+};
+
+const buildOrganizationVerificationRequestRecord = (
+  uid: string,
+  data: OrganizationVerificationRequestDocument | null,
+): OrganizationVerificationRequestRecord => {
+  const cardNumber = normalizeCardNumber(data?.cardNumber ?? '');
+  const cardNumberLast4 =
+    data?.cardNumberLast4?.trim() || (cardNumber ? cardNumber.slice(-4) : '');
+
+  return {
+    uid: data?.uid?.trim() || uid,
+    email: normalizeEmail(data?.email ?? ''),
+    username: data?.username?.trim() ?? '',
+    organizationDivision: normalizeDivision(data?.organizationDivision ?? ''),
+    cardNumber,
+    cardNumberLast4,
+    cardImagePath: data?.cardImagePath?.trim() ?? '',
+    cardImageUrl: data?.cardImageUrl?.trim() ?? '',
+    cardImageName: data?.cardImageName?.trim() ?? '',
+    cardImageContentType: data?.cardImageContentType?.trim() ?? '',
+    cardImageSize: normalizeTimestamp(data?.cardImageSize),
+    status: normalizeVerificationRequestStatus(data?.status),
+    submittedAt: normalizeTimestamp(data?.submittedAt),
+    updatedAt: normalizeTimestamp(data?.updatedAt),
+    reviewedAt:
+      typeof data?.reviewedAt === 'number' && Number.isFinite(data.reviewedAt)
+        ? data.reviewedAt
+        : undefined,
+  };
+};
+
+const isFirestorePermissionDeniedError = (error: unknown) => {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  const errorRecord = error as { code?: unknown; message?: unknown };
+  const errorCode =
+    typeof errorRecord.code === 'string' ? errorRecord.code.trim() : '';
+  const errorMessage =
+    typeof errorRecord.message === 'string' ? errorRecord.message.trim() : '';
+
+  return (
+    errorCode === 'permission-denied' ||
+    errorCode === 'firestore/permission-denied' ||
+    errorMessage.includes('Missing or insufficient permissions')
+  );
+};
 
 const buildUserProfileRecord = (
   uid: string,
@@ -541,6 +629,64 @@ export const submitOrganizationVerificationRequest = async ({
   return getUserProfile(uid, email);
 };
 
+export const fetchPendingOrganizationVerificationRequests = async () => {
+  try {
+    const snapshot = await getDocs(
+      query(
+        collection(db, ORGANIZATION_VERIFICATION_REQUESTS_COLLECTION),
+        where('status', '==', 'pending'),
+      ),
+    );
+
+    return snapshot.docs
+      .map((requestDoc) =>
+        buildOrganizationVerificationRequestRecord(
+          requestDoc.id,
+          requestDoc.data() as OrganizationVerificationRequestDocument,
+        ),
+      )
+      .sort((left, right) => {
+        if (left.submittedAt !== right.submittedAt) {
+          return right.submittedAt - left.submittedAt;
+        }
+
+        return right.updatedAt - left.updatedAt;
+      });
+  } catch (error) {
+    if (!isFirestorePermissionDeniedError(error)) {
+      throw error;
+    }
+
+    const profiles = await fetchUserProfiles();
+
+    return profiles
+      .filter(
+        (profile) =>
+          profile.organizationVerificationRequestStatus === 'pending' &&
+          Boolean(profile.organizationVerificationRequestedAt),
+      )
+      .map((profile) =>
+        buildOrganizationVerificationRequestRecord(profile.uid, {
+          uid: profile.uid,
+          email: profile.email,
+          username: profile.username,
+          organizationDivision: profile.organizationDivision,
+          status: 'pending',
+          submittedAt: profile.organizationVerificationRequestedAt,
+          updatedAt:
+            profile.organizationVerificationRequestedAt ?? profile.createdAt,
+        }),
+      )
+      .sort((left, right) => {
+        if (left.submittedAt !== right.submittedAt) {
+          return right.submittedAt - left.submittedAt;
+        }
+
+        return right.updatedAt - left.updatedAt;
+      });
+  }
+};
+
 export const verifyUserOrganizationProfile = async ({
   uid,
   email,
@@ -552,46 +698,254 @@ export const verifyUserOrganizationProfile = async ({
 }) => {
   const member = await verifyOrganizationMember({ email, officerId });
   const profileRef = doc(db, PROFILES_COLLECTION, uid);
+  const requestRef = doc(
+    db,
+    ORGANIZATION_VERIFICATION_REQUESTS_COLLECTION,
+    uid,
+  );
 
-  await runTransaction(db, async (transaction) => {
-    const profileSnapshot = await transaction.get(profileRef);
+  try {
+    await runTransaction(db, async (transaction) => {
+      const profileSnapshot = await transaction.get(profileRef);
 
-    if (!profileSnapshot.exists()) {
-      throw new Error('ไม่พบโปรไฟล์ผู้ใช้สำหรับยืนยันตัวตน');
-    }
+      if (!profileSnapshot.exists()) {
+        throw new Error('ไม่พบโปรไฟล์ผู้ใช้สำหรับยืนยันตัวตน');
+      }
 
-    const profileData = profileSnapshot.data() as Partial<UserProfileRecord>;
-    const cleanUsername = profileData.username?.trim() ?? '';
-    const normalizedUsername =
-      profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
-    const verifiedAt = Date.now();
-    const organizationStatus: OrganizationStatus = ORGANIZATION_STATUS_VERIFIED;
-    const verificationUpdates = {
-      officerId: member.officerId,
-      fullName: member.fullName,
-      organizationUnit: member.unit,
-      organizationStatus,
-      organizationVerifiedAt: verifiedAt,
-    };
+      const profileData = profileSnapshot.data() as Partial<UserProfileRecord>;
+      const requestSnapshot = await transaction.get(requestRef);
+      const requestData = requestSnapshot.exists()
+        ? (requestSnapshot.data() as OrganizationVerificationRequestDocument)
+        : null;
+      const cleanUsername = profileData.username?.trim() ?? '';
+      const normalizedUsername =
+        profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
+      const verifiedAt = Date.now();
+      const organizationStatus: OrganizationStatus = ORGANIZATION_STATUS_VERIFIED;
+      const requestStatus = 'approved' as const;
+      const organizationDivision = normalizeDivision(
+        requestData?.organizationDivision ?? profileData.organizationDivision ?? '',
+      );
+      const verificationUpdates = {
+        officerId: member.officerId,
+        fullName: member.fullName,
+        organizationUnit: member.unit,
+        organizationDivision,
+        organizationStatus,
+        organizationVerifiedAt: verifiedAt,
+        organizationVerificationRequestStatus: requestStatus,
+      };
 
-    transaction.update(profileRef, verificationUpdates);
+      transaction.update(profileRef, verificationUpdates);
 
-    if (normalizedUsername) {
-      const usernameRef = doc(db, USERNAMES_COLLECTION, normalizedUsername);
       transaction.set(
-        usernameRef,
+        requestRef,
         {
-          ...profileData,
           uid,
-          username: cleanUsername,
-          normalizedUsername,
           email: normalizeEmail(email),
-          ...verificationUpdates,
+          username: cleanUsername,
+          organizationDivision,
+          status: requestStatus,
+          reviewedAt: verifiedAt,
+          updatedAt: verifiedAt,
+          officerId: member.officerId,
+          fullName: member.fullName,
         },
         { merge: true },
       );
+
+      if (normalizedUsername) {
+        const usernameRef = doc(db, USERNAMES_COLLECTION, normalizedUsername);
+        transaction.set(
+          usernameRef,
+          {
+            ...profileData,
+            uid,
+            username: cleanUsername,
+            normalizedUsername,
+            email: normalizeEmail(email),
+            ...verificationUpdates,
+          },
+          { merge: true },
+        );
+      }
+    });
+  } catch (error) {
+    if (!isFirestorePermissionDeniedError(error)) {
+      throw error;
     }
-  });
+
+    await runTransaction(db, async (transaction) => {
+      const profileSnapshot = await transaction.get(profileRef);
+
+      if (!profileSnapshot.exists()) {
+        throw new Error('ไม่พบโปรไฟล์ผู้ใช้สำหรับยืนยันตัวตน');
+      }
+
+      const profileData = profileSnapshot.data() as Partial<UserProfileRecord>;
+      const cleanUsername = profileData.username?.trim() ?? '';
+      const normalizedUsername =
+        profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
+      const verifiedAt = Date.now();
+      const organizationDivision = normalizeDivision(
+        profileData.organizationDivision ?? '',
+      );
+      const verificationUpdates = {
+        officerId: member.officerId,
+        fullName: member.fullName,
+        organizationUnit: member.unit,
+        organizationDivision,
+        organizationStatus: ORGANIZATION_STATUS_VERIFIED as OrganizationStatus,
+        organizationVerifiedAt: verifiedAt,
+        organizationVerificationRequestStatus: 'approved' as const,
+      };
+
+      transaction.update(profileRef, verificationUpdates);
+
+      if (normalizedUsername) {
+        transaction.set(
+          doc(db, USERNAMES_COLLECTION, normalizedUsername),
+          {
+            ...profileData,
+            uid,
+            username: cleanUsername,
+            normalizedUsername,
+            email: normalizeEmail(email),
+            ...verificationUpdates,
+          },
+          { merge: true },
+        );
+      }
+    });
+  }
+
+  return getUserProfile(uid, email);
+};
+
+export const rejectOrganizationVerificationRequest = async ({
+  uid,
+  email = '',
+}: {
+  uid: string;
+  email?: string;
+}) => {
+  const profileRef = doc(db, PROFILES_COLLECTION, uid);
+  const requestRef = doc(
+    db,
+    ORGANIZATION_VERIFICATION_REQUESTS_COLLECTION,
+    uid,
+  );
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const profileSnapshot = await transaction.get(profileRef);
+
+      if (!profileSnapshot.exists()) {
+        throw new Error('ไม่พบโปรไฟล์ผู้ใช้สำหรับปฏิเสธคำขอยืนยันตัวตน');
+      }
+
+      const profileData = profileSnapshot.data() as Partial<UserProfileRecord>;
+      const requestSnapshot = await transaction.get(requestRef);
+      const requestData = requestSnapshot.exists()
+        ? (requestSnapshot.data() as OrganizationVerificationRequestDocument)
+        : null;
+      const cleanUsername =
+        profileData.username?.trim() ?? requestData?.username?.trim() ?? '';
+      const normalizedUsername =
+        profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
+      const cleanEmail = normalizeEmail(
+        profileData.email ?? requestData?.email ?? email,
+      );
+      const organizationDivision = normalizeDivision(
+        requestData?.organizationDivision ?? profileData.organizationDivision ?? '',
+      );
+      const reviewedAt = Date.now();
+      const organizationStatus: OrganizationStatus = 'rejected';
+      const requestStatus = 'rejected' as const;
+      const rejectionUpdates = {
+        organizationUnit: ORGANIZATION_UNIT,
+        organizationDivision,
+        organizationStatus,
+        organizationVerificationRequestStatus: requestStatus,
+      };
+
+      transaction.update(profileRef, rejectionUpdates);
+      transaction.set(
+        requestRef,
+        {
+          uid,
+          email: cleanEmail,
+          username: cleanUsername,
+          organizationDivision,
+          status: requestStatus,
+          reviewedAt,
+          updatedAt: reviewedAt,
+        },
+        { merge: true },
+      );
+
+      if (normalizedUsername) {
+        const usernameRef = doc(db, USERNAMES_COLLECTION, normalizedUsername);
+
+        transaction.set(
+          usernameRef,
+          {
+            ...profileData,
+            uid,
+            username: cleanUsername,
+            normalizedUsername,
+            email: cleanEmail,
+            ...rejectionUpdates,
+          },
+          { merge: true },
+        );
+      }
+    });
+  } catch (error) {
+    if (!isFirestorePermissionDeniedError(error)) {
+      throw error;
+    }
+
+    await runTransaction(db, async (transaction) => {
+      const profileSnapshot = await transaction.get(profileRef);
+
+      if (!profileSnapshot.exists()) {
+        throw new Error('ไม่พบโปรไฟล์ผู้ใช้สำหรับปฏิเสธคำขอยืนยันตัวตน');
+      }
+
+      const profileData = profileSnapshot.data() as Partial<UserProfileRecord>;
+      const cleanUsername = profileData.username?.trim() ?? '';
+      const normalizedUsername =
+        profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
+      const cleanEmail = normalizeEmail(profileData.email ?? email);
+      const organizationDivision = normalizeDivision(
+        profileData.organizationDivision ?? '',
+      );
+      const rejectionUpdates = {
+        organizationUnit: ORGANIZATION_UNIT,
+        organizationDivision,
+        organizationStatus: 'rejected' as OrganizationStatus,
+        organizationVerificationRequestStatus: 'rejected' as const,
+      };
+
+      transaction.update(profileRef, rejectionUpdates);
+
+      if (normalizedUsername) {
+        transaction.set(
+          doc(db, USERNAMES_COLLECTION, normalizedUsername),
+          {
+            ...profileData,
+            uid,
+            username: cleanUsername,
+            normalizedUsername,
+            email: cleanEmail,
+            ...rejectionUpdates,
+          },
+          { merge: true },
+        );
+      }
+    });
+  }
 
   return getUserProfile(uid, email);
 };

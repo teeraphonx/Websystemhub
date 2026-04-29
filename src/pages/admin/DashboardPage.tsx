@@ -17,6 +17,7 @@ import AdminBookingTable from '../../components/admin/AdminBookingTable';
 import AdminCalendar from '../../components/admin/AdminCalendar';
 import AdminEquipmentCreateModal from '../../components/admin/AdminEquipmentCreateModal';
 import AdminUserDirectory from '../../components/admin/AdminUserDirectory';
+import AdminVerificationRequestsPanel from '../../components/admin/AdminVerificationRequestsPanel';
 import { useThaiDateTime } from '../../hooks/useThaiDateTime';
 import { ApiError } from '../../lib/api';
 import {
@@ -977,6 +978,8 @@ export default function DashboardPage({
           </div>
         </button>
       </div>
+
+      <AdminVerificationRequestsPanel onRequestHandled={loadUserProfiles} />
 
       {isUserDirectoryOpen && (
         <AdminUserDirectory

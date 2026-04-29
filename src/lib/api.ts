@@ -21,12 +21,17 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(input: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers ?? undefined);
+  const isFormDataBody =
+    typeof FormData !== 'undefined' && init?.body instanceof FormData;
+
+  if (!isFormDataBody && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
   const response = await fetch(`${API_BASE_URL}${input.startsWith('/') ? input : `/${input}`}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   const isJson = response.headers.get('content-type')?.includes('application/json');
