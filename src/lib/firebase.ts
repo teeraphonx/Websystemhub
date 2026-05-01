@@ -26,7 +26,7 @@ import {
   uploadBytes,
 } from 'firebase/storage';
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: 'AIzaSyBFCcOdy9yvvjmbw-fDP3IBz2mhzJp5JeA',
   authDomain: 'signinandsignupweb.firebaseapp.com',
   projectId: 'signinandsignupweb',
@@ -64,6 +64,7 @@ export interface OrganizationVerificationRequestRecord {
   uid: string;
   email: string;
   username: string;
+  fullName: string;
   organizationDivision: string;
   cardNumber: string;
   cardNumberLast4: string;
@@ -106,8 +107,8 @@ const ORGANIZATION_MEMBERS_COLLECTION = 'organizationMembers';
 const ORGANIZATION_VERIFICATION_REQUESTS_COLLECTION =
   'organizationVerificationRequests';
 const ORGANIZATION_VERIFICATION_UPLOADS_PATH = 'organization-verifications';
-const MAX_VERIFICATION_CARD_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
-const ALLOWED_VERIFICATION_CARD_IMAGE_TYPES = new Set([
+export const MAX_VERIFICATION_CARD_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+export const ALLOWED_VERIFICATION_CARD_IMAGE_TYPES = new Set([
   'image/jpeg',
   'image/png',
   'image/webp',
@@ -137,6 +138,7 @@ export const setFirebaseAuthPersistence = async (rememberMe: boolean) => {
 export const normalizeUsername = (value: string) => value.trim().toLowerCase();
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const normalizeOfficerId = (value: string) => value.trim().toUpperCase();
+const normalizeFullName = (value: string) => value.trim().replace(/\s+/g, ' ');
 const normalizeDivision = (value: string) => value.trim();
 const normalizeCardNumber = (value: string) =>
   value.trim().replace(/\s+/g, '').toUpperCase();
@@ -165,6 +167,20 @@ const getVerificationCardImageExtension = (file: File) => {
       return 'heif';
     default:
       return 'jpg';
+  }
+};
+
+export const validateVerificationCardImageFile = (file: File | null) => {
+  if (!file) {
+    return;
+  }
+
+  if (!ALLOWED_VERIFICATION_CARD_IMAGE_TYPES.has(file.type)) {
+    throw new Error('รองรับเฉพาะไฟล์รูป JPG, PNG, WebP, HEIC หรือ HEIF');
+  }
+
+  if (file.size > MAX_VERIFICATION_CARD_IMAGE_SIZE_BYTES) {
+    throw new Error('ขนาดไฟล์รูปบัตรต้องไม่เกิน 5MB');
   }
 };
 
@@ -204,6 +220,7 @@ const buildOrganizationVerificationRequestRecord = (
     uid: data?.uid?.trim() || uid,
     email: normalizeEmail(data?.email ?? ''),
     username: data?.username?.trim() ?? '',
+    fullName: normalizeFullName(data?.fullName ?? ''),
     organizationDivision: normalizeDivision(data?.organizationDivision ?? ''),
     cardNumber,
     cardNumberLast4,
@@ -502,19 +519,34 @@ export const updateUserActivity = async ({
 export const submitOrganizationVerificationRequest = async ({
   uid,
   email,
+  fullName,
   division,
   cardNumber,
   cardImage,
 }: {
   uid: string;
   email: string;
+  fullName: string;
   division: string;
   cardNumber: string;
   cardImage: File | null;
 }) => {
   const cleanEmail = normalizeEmail(email);
+  const cleanFullName = normalizeFullName(fullName);
   const cleanDivision = normalizeDivision(division);
   const cleanCardNumber = normalizeCardNumber(cardNumber);
+
+  if (!cleanFullName) {
+    throw new Error('กรุณากรอกชื่อและนามสกุล');
+  }
+
+  if (cleanFullName.split(' ').length < 2) {
+    throw new Error('กรุณากรอกชื่อและนามสกุลในช่องเดียวกัน');
+  }
+
+  if (cleanFullName.length > 120) {
+    throw new Error('ชื่อและนามสกุลต้องยาวไม่เกิน 120 ตัวอักษร');
+  }
 
   if (!cleanDivision) {
     throw new Error('กรุณาระบุกองกำกับการ');
@@ -536,13 +568,7 @@ export const submitOrganizationVerificationRequest = async ({
     throw new Error('กรุณาแนบรูปบัตร');
   }
 
-  if (!ALLOWED_VERIFICATION_CARD_IMAGE_TYPES.has(cardImage.type)) {
-    throw new Error('รองรับเฉพาะไฟล์รูป JPG, PNG, WebP, HEIC หรือ HEIF');
-  }
-
-  if (cardImage.size > MAX_VERIFICATION_CARD_IMAGE_SIZE_BYTES) {
-    throw new Error('ขนาดไฟล์รูปบัตรต้องไม่เกิน 5MB');
-  }
+  validateVerificationCardImageFile(cardImage);
 
   const submittedAt = Date.now();
   const extension = getVerificationCardImageExtension(cardImage);
@@ -579,6 +605,7 @@ export const submitOrganizationVerificationRequest = async ({
     const normalizedUsername =
       profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
     const profileUpdates = {
+      fullName: cleanFullName,
       organizationUnit: ORGANIZATION_UNIT,
       organizationDivision: cleanDivision,
       organizationStatus: 'pending' as OrganizationStatus,
@@ -592,6 +619,7 @@ export const submitOrganizationVerificationRequest = async ({
         uid,
         email: cleanEmail,
         username: cleanUsername,
+        fullName: cleanFullName,
         organizationDivision: cleanDivision,
         cardNumber: cleanCardNumber,
         cardNumberLast4: cleanCardNumber.slice(-4),
@@ -670,6 +698,7 @@ export const fetchPendingOrganizationVerificationRequests = async () => {
           uid: profile.uid,
           email: profile.email,
           username: profile.username,
+          fullName: profile.fullName,
           organizationDivision: profile.organizationDivision,
           status: 'pending',
           submittedAt: profile.organizationVerificationRequestedAt,
@@ -726,9 +755,12 @@ export const verifyUserOrganizationProfile = async ({
       const organizationDivision = normalizeDivision(
         requestData?.organizationDivision ?? profileData.organizationDivision ?? '',
       );
+      const verifiedFullName =
+        normalizeFullName(requestData?.fullName ?? profileData.fullName ?? '') ||
+        member.fullName;
       const verificationUpdates = {
         officerId: member.officerId,
-        fullName: member.fullName,
+        fullName: verifiedFullName,
         organizationUnit: member.unit,
         organizationDivision,
         organizationStatus,
@@ -749,7 +781,7 @@ export const verifyUserOrganizationProfile = async ({
           reviewedAt: verifiedAt,
           updatedAt: verifiedAt,
           officerId: member.officerId,
-          fullName: member.fullName,
+          fullName: verifiedFullName,
         },
         { merge: true },
       );
@@ -790,9 +822,11 @@ export const verifyUserOrganizationProfile = async ({
       const organizationDivision = normalizeDivision(
         profileData.organizationDivision ?? '',
       );
+      const verifiedFullName =
+        normalizeFullName(profileData.fullName ?? '') || member.fullName;
       const verificationUpdates = {
         officerId: member.officerId,
-        fullName: member.fullName,
+        fullName: verifiedFullName,
         organizationUnit: member.unit,
         organizationDivision,
         organizationStatus: ORGANIZATION_STATUS_VERIFIED as OrganizationStatus,

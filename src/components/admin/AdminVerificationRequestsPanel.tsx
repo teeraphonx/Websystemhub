@@ -13,11 +13,11 @@ import {
   XCircle,
 } from 'lucide-react';
 import {
-  fetchPendingOrganizationVerificationRequests,
-  rejectOrganizationVerificationRequest,
-  verifyUserOrganizationProfile,
+  approveAdminOrganizationVerificationRequest,
+  fetchAdminPendingOrganizationVerificationRequests,
+  rejectAdminOrganizationVerificationRequest,
   type OrganizationVerificationRequestRecord,
-} from '../../lib/firebase';
+} from '../../lib/adminVerificationAccess';
 
 interface AdminVerificationRequestsPanelProps {
   onRequestHandled?: () => Promise<void> | void;
@@ -71,7 +71,10 @@ const getErrorMessage = (error: unknown, fallbackMessage: string) => {
 };
 
 const getDisplayName = (request: OrganizationVerificationRequestRecord) =>
-  request.username.trim() || request.email.trim() || request.uid;
+  request.fullName.trim() ||
+  request.username.trim() ||
+  request.email.trim() ||
+  request.uid;
 
 export default function AdminVerificationRequestsPanel({
   onRequestHandled,
@@ -89,7 +92,7 @@ export default function AdminVerificationRequestsPanel({
     setErrorMessage('');
 
     try {
-      const nextRequests = await fetchPendingOrganizationVerificationRequests();
+      const nextRequests = await fetchAdminPendingOrganizationVerificationRequests();
       setRequests(nextRequests);
     } catch (error) {
       setErrorMessage(
@@ -145,7 +148,7 @@ export default function AdminVerificationRequestsPanel({
     setActionMessage('');
 
     try {
-      await verifyUserOrganizationProfile({
+      await approveAdminOrganizationVerificationRequest({
         uid: request.uid,
         email: request.email,
       });
@@ -184,7 +187,7 @@ export default function AdminVerificationRequestsPanel({
     setActionMessage('');
 
     try {
-      await rejectOrganizationVerificationRequest({
+      await rejectAdminOrganizationVerificationRequest({
         uid: request.uid,
         email: request.email,
       });
@@ -308,6 +311,16 @@ export default function AdminVerificationRequestsPanel({
                           </p>
                           <p className="mt-2 break-all text-[12px] font-bold text-white">
                             {request.email || 'ไม่ระบุ'}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] px-4 py-3">
+                          <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                            <UserRound size={12} />
+                            ชื่อ-นามสกุล
+                          </p>
+                          <p className="mt-2 text-[12px] font-bold text-white">
+                            {request.fullName || 'ไม่ระบุ'}
                           </p>
                         </div>
 

@@ -223,7 +223,7 @@ const getUnknownAuthErrorMessage = ({
 export const createAdminFirebaseNotConfiguredModal = () =>
   createErrorModal(
     'ยังไม่ได้ตั้งค่า Firebase แอดมิน',
-    'กรุณากำหนด VITE_ADMIN_FIREBASE_* ในไฟล์ .env ก่อนใช้งานหน้าแอดมิน',
+    'กรุณาตรวจสอบการตั้งค่า Firebase ของระบบก่อนใช้งานหน้าแอดมิน',
   );
 
 export const getFirebaseAuthErrorModal = (

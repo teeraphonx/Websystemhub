@@ -18,9 +18,17 @@ import {
 } from '../../lib/firebase';
 import {
   getDirectoryIdentityKeys,
+  isBookingFallbackDirectoryUser,
+  persistDismissedBookingDirectoryUserKeys,
   persistHiddenDirectoryUserKeys,
+  readDismissedBookingDirectoryUserKeys,
   readHiddenDirectoryUserKeys,
 } from '../../utils/adminUserDirectory';
+import {
+  pruneUserActivityIdentityRegistry,
+  readUserActivityIdentityRegistry,
+  type UserActivityIdentityRegistry,
+} from '../../utils/userActivityPresence';
 
 interface AdminUserDirectoryProps {
   users: UserProfileRecord[];
@@ -28,6 +36,7 @@ interface AdminUserDirectoryProps {
   isLoading: boolean;
   errorMessage: string;
   onHiddenUsersChange: (hiddenKeys: Set<string>) => void;
+  onDismissedBookingUsersChange: (dismissedKeys: Set<string>) => void;
   onSearchChange: (value: string) => void;
   onRefresh: () => Promise<void> | void;
   onClose: () => void;
@@ -35,7 +44,7 @@ interface AdminUserDirectoryProps {
 
 type UserActivityFilter = 'all' | 'active' | 'inactive';
 
-const USER_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
+const USER_ACTIVE_WINDOW_MS = 15 * 60 * 1000;
 const USER_ACTIVITY_CLOCK_INTERVAL_MS = 30000;
 
 const ORGANIZATION_STATUS_META = {
@@ -69,8 +78,12 @@ const getProfileIdentityLabel = (user: UserProfileRecord) =>
     ? 'ส่งรูปบัตรแล้ว รอตรวจสอบ'
     : user.username?.trim() || user.email?.trim() || 'ยังไม่ระบุชื่อจริง');
 
-const isBookingFallbackUser = (user: UserProfileRecord) =>
-  user.uid.startsWith('booking-email:') || user.uid.startsWith('booking-user:');
+const getProfileMetaLabels = (user: UserProfileRecord) =>
+  [
+    user.organizationDivision.trim() || 'ยังไม่ระบุกองกำกับการ',
+    user.organizationUnit.trim(),
+    user.officerId.trim(),
+  ].filter(Boolean);
 
 const formatActivityTime = (timestamp: number | undefined, now: number) => {
   if (!timestamp) {
@@ -104,17 +117,87 @@ const formatActivityTime = (timestamp: number | undefined, now: number) => {
   });
 };
 
-const isUserCurrentlyActive = (user: UserProfileRecord, now: number) =>
-  now > 0 &&
-  user.isActive === true &&
-  Boolean(user.lastActiveAt) &&
-  now - Number(user.lastActiveAt) <= USER_ACTIVE_WINDOW_MS;
+const normalizeActivityTimestamp = (value: number | undefined) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : 0;
 
-const getActivityMeta = (user: UserProfileRecord, now: number) => {
-  const isActive = isUserCurrentlyActive(user, now);
+const readRecentLocalActivityRegistry = (now: number) =>
+  pruneUserActivityIdentityRegistry(
+    readUserActivityIdentityRegistry(),
+    USER_ACTIVE_WINDOW_MS,
+    now,
+  );
+
+const getLatestLocalActivityAt = (
+  user: UserProfileRecord,
+  localActivityRegistry: UserActivityIdentityRegistry,
+) =>
+  getDirectoryIdentityKeys(user).reduce((latestSeenAt, key) => {
+    const activityEntry = localActivityRegistry[key];
+    return Math.max(latestSeenAt, activityEntry?.lastSeenAt ?? 0);
+  }, 0);
+
+const getLatestKnownActiveAt = (user: UserProfileRecord) =>
+  Math.max(
+    normalizeActivityTimestamp(user.lastActiveAt),
+    normalizeActivityTimestamp(user.activityUpdatedAt),
+  );
+
+const getLatestKnownInactiveAt = (user: UserProfileRecord) =>
+  normalizeActivityTimestamp(user.lastInactiveAt);
+
+const isUserCurrentlyActive = (
+  user: UserProfileRecord,
+  now: number,
+  localActivityRegistry: UserActivityIdentityRegistry,
+) => {
+  const latestActiveAt = getLatestKnownActiveAt(user);
+  const latestInactiveAt = getLatestKnownInactiveAt(user);
+  const latestLocalActivityAt = getLatestLocalActivityAt(
+    user,
+    localActivityRegistry,
+  );
+
+  if (now <= 0) {
+    return false;
+  }
+
+  if (
+    latestLocalActivityAt > 0 &&
+    now - latestLocalActivityAt <= USER_ACTIVE_WINDOW_MS
+  ) {
+    return true;
+  }
+
+  if (latestActiveAt <= 0) {
+    return false;
+  }
+
+  if (now - latestActiveAt > USER_ACTIVE_WINDOW_MS) {
+    return false;
+  }
+
+  if (user.isActive === false && latestInactiveAt >= latestActiveAt) {
+    return false;
+  }
+
+  return true;
+};
+
+const getActivityMeta = (
+  user: UserProfileRecord,
+  now: number,
+  localActivityRegistry: UserActivityIdentityRegistry,
+) => {
+  const latestLocalActivityAt = getLatestLocalActivityAt(
+    user,
+    localActivityRegistry,
+  );
+  const isActive = isUserCurrentlyActive(user, now, localActivityRegistry);
+  const latestActiveAt = getLatestKnownActiveAt(user);
+  const latestInactiveAt = getLatestKnownInactiveAt(user);
   const lastActivityAt = isActive
-    ? user.lastActiveAt
-    : user.lastInactiveAt ?? user.lastActiveAt;
+    ? Math.max(latestActiveAt, latestLocalActivityAt)
+    : Math.max(latestInactiveAt, latestActiveAt, latestLocalActivityAt);
 
   return {
     isActive,
@@ -146,6 +229,7 @@ export default function AdminUserDirectory({
   isLoading,
   errorMessage,
   onHiddenUsersChange,
+  onDismissedBookingUsersChange,
   onSearchChange,
   onRefresh,
   onClose,
@@ -156,6 +240,13 @@ export default function AdminUserDirectory({
   const [hiddenUserKeys, setHiddenUserKeys] = useState<Set<string>>(
     readHiddenDirectoryUserKeys,
   );
+  const [dismissedBookingUserKeys, setDismissedBookingUserKeys] = useState<
+    Set<string>
+  >(readDismissedBookingDirectoryUserKeys);
+  const [localActivityRegistry, setLocalActivityRegistry] =
+    useState<UserActivityIdentityRegistry>(() =>
+      readRecentLocalActivityRegistry(Date.now()),
+    );
   const [deletingUserIdentity, setDeletingUserIdentity] = useState('');
   const [directoryActionError, setDirectoryActionError] = useState('');
   const [directoryActionMessage, setDirectoryActionMessage] = useState('');
@@ -163,7 +254,9 @@ export default function AdminUserDirectory({
 
   useEffect(() => {
     const updateActivityNow = () => {
-      setActivityNow(Date.now());
+      const now = Date.now();
+      setActivityNow(now);
+      setLocalActivityRegistry(readRecentLocalActivityRegistry(now));
     };
 
     updateActivityNow();
@@ -177,17 +270,42 @@ export default function AdminUserDirectory({
   }, []);
 
   useEffect(() => {
+    const syncLocalActivityRegistry = () => {
+      setLocalActivityRegistry(readRecentLocalActivityRegistry(Date.now()));
+    };
+
+    window.addEventListener('storage', syncLocalActivityRegistry);
+
+    return () =>
+      window.removeEventListener('storage', syncLocalActivityRegistry);
+  }, []);
+
+  useEffect(() => {
     onHiddenUsersChange(new Set(hiddenUserKeys));
   }, [hiddenUserKeys, onHiddenUsersChange]);
 
+  useEffect(() => {
+    onDismissedBookingUsersChange(new Set(dismissedBookingUserKeys));
+  }, [dismissedBookingUserKeys, onDismissedBookingUsersChange]);
+
   const userRows = useMemo(
     () =>
-      users.map((user) => ({
-        user,
-        organizationStatusMeta: getStatusMeta(user),
-        activityMeta: getActivityMeta(user, activityNow),
-      })),
-    [activityNow, users],
+      users
+        .filter((user) => {
+          if (!isBookingFallbackDirectoryUser(user)) {
+            return true;
+          }
+
+          return !getDirectoryIdentityKeys(user).some((key) =>
+            dismissedBookingUserKeys.has(key),
+          );
+        })
+        .map((user) => ({
+          user,
+          organizationStatusMeta: getStatusMeta(user),
+          activityMeta: getActivityMeta(user, activityNow, localActivityRegistry),
+        })),
+    [activityNow, dismissedBookingUserKeys, localActivityRegistry, users],
   );
   const visibleUserRows = useMemo(
     () =>
@@ -197,6 +315,7 @@ export default function AdminUserDirectory({
       ),
     [hiddenUserKeys, userRows],
   );
+  const hiddenUserCount = userRows.length - visibleUserRows.length;
   const activeUserCount = visibleUserRows.filter(
     (row) => row.activityMeta.isActive,
   ).length;
@@ -251,11 +370,10 @@ export default function AdminUserDirectory({
     }
 
     const displayName = getDisplayName(user);
-    const fallbackDeleteWarning = isBookingFallbackUser(user)
-      ? 'รายการนี้มาจากข้อมูลการจอง ระบบจะซ่อนออกจากรายชื่อหน้านี้ให้'
-      : 'ระบบจะลบข้อมูลโปรไฟล์ผู้ใช้ออกจากรายชื่อหน้านี้';
     const shouldDelete = window.confirm(
-      `ต้องการลบ "${displayName}" ใช่หรือไม่\n\n${fallbackDeleteWarning}`,
+      isBookingFallbackDirectoryUser(user)
+        ? `ต้องการลบ "${displayName}" ใช่หรือไม่\n\nระบบจะนำรายการนี้ออกจากรายชื่อผู้ใช้ของแอดมินทันที โดยไม่กระทบข้อมูลการจองเดิม และจะไม่ย้ายไปอยู่ในรายการซ่อน`
+        : `ต้องการลบ "${displayName}" ใช่หรือไม่\n\nระบบจะลบข้อมูลโปรไฟล์ผู้ใช้ออกจาก Firestore และนำออกจากรายชื่อหน้านี้`,
     );
 
     if (!shouldDelete) {
@@ -267,19 +385,55 @@ export default function AdminUserDirectory({
     setDirectoryActionMessage('');
 
     try {
-      await deleteUserDirectoryEntry(user);
-
       setHiddenUserKeys((currentHiddenKeys) => {
         const nextHiddenKeys = new Set(currentHiddenKeys);
-        identityKeys.forEach((key) => nextHiddenKeys.add(key));
-        persistHiddenDirectoryUserKeys(nextHiddenKeys);
-        return nextHiddenKeys;
+        let hasChanges = false;
+
+        identityKeys.forEach((key) => {
+          if (nextHiddenKeys.delete(key)) {
+            hasChanges = true;
+          }
+        });
+
+        if (hasChanges) {
+          persistHiddenDirectoryUserKeys(nextHiddenKeys);
+          return nextHiddenKeys;
+        }
+
+        return currentHiddenKeys;
+      });
+      setDismissedBookingUserKeys((currentDismissedKeys) => {
+        const nextDismissedKeys = new Set(currentDismissedKeys);
+        let hasChanges = false;
+
+        identityKeys.forEach((key) => {
+          if (!nextDismissedKeys.has(key)) {
+            nextDismissedKeys.add(key);
+            hasChanges = true;
+          }
+        });
+
+        if (hasChanges) {
+          persistDismissedBookingDirectoryUserKeys(nextDismissedKeys);
+          return nextDismissedKeys;
+        }
+
+        return currentDismissedKeys;
       });
 
+      if (!isBookingFallbackDirectoryUser(user)) {
+        await deleteUserDirectoryEntry(user);
+      }
+
       setDirectoryActionMessage(
-        `ลบ "${displayName}" ออกจากรายชื่อผู้ใช้งานแล้ว`,
+        isBookingFallbackDirectoryUser(user)
+          ? `นำ "${displayName}" ออกจากรายชื่อผู้ใช้เรียบร้อยแล้ว`
+          : `ลบ "${displayName}" ออกจากระบบเรียบร้อยแล้ว`,
       );
-      await Promise.resolve(onRefresh());
+
+      if (!isBookingFallbackDirectoryUser(user)) {
+        await Promise.resolve(onRefresh());
+      }
     } catch (error) {
       setDirectoryActionError(
         error instanceof Error && error.message.trim()
@@ -291,6 +445,14 @@ export default function AdminUserDirectory({
     }
   };
 
+  const handleRestoreHiddenUsers = () => {
+    const nextHiddenKeys = new Set<string>();
+    persistHiddenDirectoryUserKeys(nextHiddenKeys);
+    setHiddenUserKeys(nextHiddenKeys);
+    setDirectoryActionError('');
+    setDirectoryActionMessage('นำผู้ใช้งานที่ซ่อนกลับมาแสดงทั้งหมดแล้ว');
+  };
+
   return (
     <div className="systemhub-admin-panel mb-6 overflow-hidden">
       <div className="systemhub-admin-panel-header flex flex-col items-start justify-between gap-4 p-5 md:flex-row md:items-center md:p-6">
@@ -300,13 +462,28 @@ export default function AdminUserDirectory({
             รายชื่อผู้ใช้งาน
           </h3>
           <p className="mt-1 text-[11px] font-bold tracking-widest text-gray-500">
-            ทั้งหมด {visibleUserRows.length.toLocaleString()} คน · ใช้งานอยู่{' '}
+            ทั้งหมด {userRows.length.toLocaleString()} คน · แสดง{' '}
+            {visibleUserRows.length.toLocaleString()} · ใช้งานอยู่{' '}
             {activeUserCount.toLocaleString()} · ไม่ใช้งาน{' '}
             {inactiveUserCount.toLocaleString()}
+            {hiddenUserCount > 0
+              ? ` · ซ่อนอยู่ ${hiddenUserCount.toLocaleString()}`
+              : ''}
           </p>
         </div>
 
         <div className="flex w-full flex-col gap-3 lg:w-auto lg:flex-row lg:items-center">
+          {hiddenUserCount > 0 && (
+            <button
+              type="button"
+              onClick={handleRestoreHiddenUsers}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-[rgba(96,165,250,0.28)] bg-[rgba(37,99,235,0.12)] px-4 py-2 text-[11px] font-black tracking-[0.14em] text-[var(--systemhub-accent)] transition-colors hover:bg-[rgba(37,99,235,0.2)] hover:text-white"
+            >
+              <RefreshCw size={14} />
+              แสดงผู้ใช้ที่ซ่อน
+            </button>
+          )}
+
           <div className="systemhub-admin-input-shell flex rounded-xl p-1">
             {activityFilterOptions.map((option) => {
               const isSelected = activityFilter === option.id;
@@ -390,7 +567,7 @@ export default function AdminUserDirectory({
           <div className="systemhub-admin-table-head grid grid-cols-12 gap-4 px-6 py-4 text-[11px] font-black uppercase tracking-widest">
             <div className="col-span-2">ชื่อผู้ใช้</div>
             <div className="col-span-3">อีเมล</div>
-            <div className="col-span-2">ชื่อ / หน่วย</div>
+            <div className="col-span-2">ชื่อ-นามสกุล / หน่วย</div>
             <div className="col-span-2 text-center">การใช้งาน</div>
             <div className="col-span-2 text-center">ยืนยันตัวตน</div>
             <div className="col-span-1 text-right">ลบ</div>
@@ -405,6 +582,10 @@ export default function AdminUserDirectory({
             ) : filteredUsers.length > 0 ? (
               filteredUsers.map(({ user, organizationStatusMeta, activityMeta }) => {
                 const ActivityIcon = activityMeta.Icon;
+                const profileMetaLabels = getProfileMetaLabels(user);
+                const isDeletingCurrentUser =
+                  deletingUserIdentity ===
+                  (getDirectoryIdentityKeys(user)[0] ?? user.uid);
 
                 return (
                   <div
@@ -439,11 +620,11 @@ export default function AdminUserDirectory({
                       <p className="truncate text-[13px] font-bold text-gray-200">
                         {getProfileIdentityLabel(user)}
                       </p>
-                      <p className="mt-1 truncate text-[10px] font-bold text-gray-500">
-                        {user.organizationDivision || 'ยังไม่ระบุกองกำกับการ'} ·{' '}
-                        {user.organizationUnit || 'ยังไม่ระบุหน่วย'} ·{' '}
-                        {user.officerId || 'ไม่มีรหัสเจ้าหน้าที่'}
-                      </p>
+                      {profileMetaLabels.length > 0 && (
+                        <p className="mt-1 truncate text-[10px] font-bold text-gray-500">
+                          {profileMetaLabels.join(' · ')}
+                        </p>
+                      )}
                     </div>
 
                     <div className="col-span-2 flex justify-center">
@@ -479,14 +660,19 @@ export default function AdminUserDirectory({
                             ? 'cursor-not-allowed border-[rgba(71,85,105,0.45)] bg-[rgba(30,41,59,0.72)] text-gray-500'
                             : 'border-[rgba(239,68,68,0.3)] bg-[rgba(127,29,29,0.2)] text-[#fda4af] hover:bg-[rgba(127,29,29,0.35)] hover:text-white'
                         }`}
-                        title={`ลบ ${getDisplayName(user)}`}
-                        aria-label={`ลบ ${getDisplayName(user)}`}
+                        title={
+                          isBookingFallbackDirectoryUser(user)
+                            ? `นำ ${getDisplayName(user)} ออกจากรายชื่อผู้ใช้`
+                            : `ลบ ${getDisplayName(user)}`
+                        }
+                        aria-label={
+                          isBookingFallbackDirectoryUser(user)
+                            ? `นำ ${getDisplayName(user)} ออกจากรายชื่อผู้ใช้`
+                            : `ลบ ${getDisplayName(user)}`
+                        }
                       >
                         <Trash2 size={12} />
-                        {deletingUserIdentity ===
-                        (getDirectoryIdentityKeys(user)[0] ?? user.uid)
-                          ? 'กำลังลบ'
-                          : 'ลบ'}
+                        {isDeletingCurrentUser ? 'กำลังลบ' : 'ลบ'}
                       </button>
                     </div>
                   </div>
@@ -495,9 +681,21 @@ export default function AdminUserDirectory({
             ) : (
               <div className="systemhub-admin-empty-state flex flex-col items-center gap-3 py-12 text-center text-[13px] font-bold tracking-widest">
                 <UserCircle size={30} className="opacity-50" />
-                {errorMessage
-                  ? 'ยังไม่มีรายชื่อผู้ใช้ในระบบ'
-                  : 'ไม่พบผู้ใช้ที่ตรงกับตัวกรอง'}
+                <p>
+                  {errorMessage
+                    ? errorMessage
+                    : 'ไม่พบผู้ใช้ที่ตรงกับตัวกรอง'}
+                </p>
+                {!errorMessage && hiddenUserCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleRestoreHiddenUsers}
+                    className="inline-flex items-center gap-2 rounded-xl border border-[rgba(96,165,250,0.28)] bg-[rgba(37,99,235,0.12)] px-4 py-2 text-[11px] font-black tracking-[0.14em] text-[var(--systemhub-accent)] transition-colors hover:bg-[rgba(37,99,235,0.2)] hover:text-white"
+                  >
+                    <RefreshCw size={14} />
+                    แสดงผู้ใช้ที่ซ่อนทั้งหมด
+                  </button>
+                )}
               </div>
             )}
           </div>
