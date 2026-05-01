@@ -98,6 +98,9 @@ const buildOrganizationVerificationRequestRecord = (
   const cardNumber = normalizeCardNumber(data?.cardNumber ?? '');
   const cardNumberLast4 =
     data?.cardNumberLast4?.trim() || (cardNumber ? cardNumber.slice(-4) : '');
+  const cardImageDataUrl = data?.cardImageDataUrl?.trim() ?? '';
+  const cardImageUrl = data?.cardImageUrl?.trim() || cardImageDataUrl;
+  const cardImageStorageStatus = data?.cardImageStorageStatus ?? '';
 
   return {
     uid: data?.uid?.trim() || uid,
@@ -108,10 +111,13 @@ const buildOrganizationVerificationRequestRecord = (
     cardNumber,
     cardNumberLast4,
     cardImagePath: data?.cardImagePath?.trim() ?? '',
-    cardImageUrl: data?.cardImageUrl?.trim() ?? '',
+    cardImageUrl,
+    cardImageDataUrl,
     cardImageName: data?.cardImageName?.trim() ?? '',
     cardImageContentType: data?.cardImageContentType?.trim() ?? '',
     cardImageSize: normalizeTimestamp(data?.cardImageSize),
+    cardImageStorageStatus,
+    cardImageUploadError: data?.cardImageUploadError?.trim() ?? '',
     status: normalizeVerificationRequestStatus(data?.status),
     submittedAt: normalizeTimestamp(data?.submittedAt),
     updatedAt: normalizeTimestamp(data?.updatedAt),
@@ -336,6 +342,79 @@ const verifyOrganizationMemberForAdminAccess = async ({
   };
 };
 
+const buildOrganizationVerificationRequestRecordFromProfile = (
+  profile: UserProfileRecord,
+) =>
+  buildOrganizationVerificationRequestRecord(profile.uid, {
+    uid: profile.uid,
+    email: profile.email,
+    username: profile.username,
+    fullName: profile.fullName,
+    organizationDivision: profile.organizationDivision,
+    cardNumber: profile.organizationVerificationCardNumber,
+    cardNumberLast4: profile.organizationVerificationCardNumberLast4,
+    cardImagePath: profile.organizationVerificationCardImagePath,
+    cardImageUrl:
+      profile.organizationVerificationCardImageUrl ||
+      profile.organizationVerificationCardImageDataUrl,
+    cardImageDataUrl: profile.organizationVerificationCardImageDataUrl,
+    cardImageName: profile.organizationVerificationCardImageName,
+    cardImageContentType:
+      profile.organizationVerificationCardImageContentType,
+    cardImageSize: profile.organizationVerificationCardImageSize,
+    cardImageStorageStatus:
+      profile.organizationVerificationCardImageStorageStatus,
+    cardImageUploadError: profile.organizationVerificationCardImageUploadError,
+    status: 'pending',
+    submittedAt: profile.organizationVerificationRequestedAt,
+    updatedAt:
+      profile.organizationVerificationRequestedAt ?? profile.createdAt,
+  });
+
+const mergeOrganizationVerificationRequestRecords = (
+  records: OrganizationVerificationRequestRecord[],
+) => {
+  const mergedRecords = new Map<string, OrganizationVerificationRequestRecord>();
+
+  records.forEach((record) => {
+    const existingRecord = mergedRecords.get(record.uid);
+
+    if (
+      !existingRecord ||
+      (!existingRecord.cardImageUrl && record.cardImageUrl) ||
+      record.updatedAt > existingRecord.updatedAt
+    ) {
+      mergedRecords.set(record.uid, {
+        ...existingRecord,
+        ...record,
+        cardImageUrl: record.cardImageUrl || existingRecord?.cardImageUrl || '',
+        cardImageDataUrl:
+          record.cardImageDataUrl || existingRecord?.cardImageDataUrl || '',
+      });
+    }
+  });
+
+  return [...mergedRecords.values()].sort((left, right) => {
+    if (left.submittedAt !== right.submittedAt) {
+      return right.submittedAt - left.submittedAt;
+    }
+
+    return right.updatedAt - left.updatedAt;
+  });
+};
+
+const fetchPendingOrganizationVerificationRequestsFromProfiles = async () => {
+  const profiles = await fetchAdminUserProfiles();
+
+  return profiles
+    .filter(
+      (profile) =>
+        profile.organizationVerificationRequestStatus === 'pending' &&
+        Boolean(profile.organizationVerificationRequestedAt),
+    )
+    .map(buildOrganizationVerificationRequestRecordFromProfile);
+};
+
 export const fetchAdminPendingOrganizationVerificationRequests = async () => {
   const db = getAdminVerificationAccessDb();
 
@@ -347,53 +426,30 @@ export const fetchAdminPendingOrganizationVerificationRequests = async () => {
       ),
     );
 
-    return snapshot.docs
+    const requestRecords = snapshot.docs
       .map((requestDoc) =>
         buildOrganizationVerificationRequestRecord(
           requestDoc.id,
           requestDoc.data() as OrganizationVerificationRequestDocument,
         ),
-      )
-      .sort((left, right) => {
-        if (left.submittedAt !== right.submittedAt) {
-          return right.submittedAt - left.submittedAt;
-        }
+      );
+    const profileRecords =
+      await fetchPendingOrganizationVerificationRequestsFromProfiles().catch(
+        () => [],
+      );
 
-        return right.updatedAt - left.updatedAt;
-      });
+    return mergeOrganizationVerificationRequestRecords([
+      ...profileRecords,
+      ...requestRecords,
+    ]);
   } catch (error) {
     if (!isFirestorePermissionDeniedError(error)) {
       throw error;
     }
 
-    const profiles = await fetchAdminUserProfiles();
-
-    return profiles
-      .filter(
-        (profile) =>
-          profile.organizationVerificationRequestStatus === 'pending' &&
-          Boolean(profile.organizationVerificationRequestedAt),
-      )
-      .map((profile) =>
-        buildOrganizationVerificationRequestRecord(profile.uid, {
-          uid: profile.uid,
-          email: profile.email,
-          username: profile.username,
-          fullName: profile.fullName,
-          organizationDivision: profile.organizationDivision,
-          status: 'pending',
-          submittedAt: profile.organizationVerificationRequestedAt,
-          updatedAt:
-            profile.organizationVerificationRequestedAt ?? profile.createdAt,
-        }),
-      )
-      .sort((left, right) => {
-        if (left.submittedAt !== right.submittedAt) {
-          return right.submittedAt - left.submittedAt;
-        }
-
-        return right.updatedAt - left.updatedAt;
-      });
+    return mergeOrganizationVerificationRequestRecords(
+      await fetchPendingOrganizationVerificationRequestsFromProfiles(),
+    );
   }
 };
 

@@ -51,6 +51,16 @@ export interface UserProfileRecord {
   organizationVerifiedAt: number;
   organizationVerificationRequestedAt?: number;
   organizationVerificationRequestStatus?: 'pending' | 'approved' | 'rejected';
+  organizationVerificationCardNumber?: string;
+  organizationVerificationCardNumberLast4?: string;
+  organizationVerificationCardImagePath?: string;
+  organizationVerificationCardImageUrl?: string;
+  organizationVerificationCardImageDataUrl?: string;
+  organizationVerificationCardImageName?: string;
+  organizationVerificationCardImageContentType?: string;
+  organizationVerificationCardImageSize?: number;
+  organizationVerificationCardImageStorageStatus?: 'uploaded' | 'embedded';
+  organizationVerificationCardImageUploadError?: string;
   isActive?: boolean;
   lastActiveAt?: number;
   lastInactiveAt?: number;
@@ -72,9 +82,12 @@ export interface OrganizationVerificationRequestRecord {
   cardNumberLast4: string;
   cardImagePath: string;
   cardImageUrl: string;
+  cardImageDataUrl: string;
   cardImageName: string;
   cardImageContentType: string;
   cardImageSize: number;
+  cardImageStorageStatus: 'uploaded' | 'embedded' | '';
+  cardImageUploadError: string;
   status: NonNullable<OrganizationVerificationRequestStatus>;
   submittedAt: number;
   updatedAt: number;
@@ -119,6 +132,9 @@ export const ALLOWED_VERIFICATION_CARD_IMAGE_TYPES = new Set([
 ]);
 const VERIFICATION_CARD_IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
 const VERIFICATION_REQUEST_TIMEOUT_MS = 30_000;
+const VERIFICATION_CARD_IMAGE_FALLBACK_MAX_BYTES = 700 * 1024;
+const VERIFICATION_CARD_IMAGE_FALLBACK_DIMENSIONS = [1200, 1000, 800, 640];
+const VERIFICATION_CARD_IMAGE_FALLBACK_QUALITIES = [0.82, 0.72, 0.62, 0.52, 0.42];
 
 const defaultFirebaseApp = getApps().find((app) => app.name === '[DEFAULT]');
 const firebaseApp = defaultFirebaseApp ?? initializeApp(firebaseConfig);
@@ -151,6 +167,24 @@ const normalizeTimestamp = (value: unknown, fallbackValue = 0) =>
     ? value
     : fallbackValue;
 
+const getErrorMessageText = (error: unknown) => {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    const errorRecord = error as { code?: unknown; message?: unknown };
+    const errorCode =
+      typeof errorRecord.code === 'string' ? errorRecord.code.trim() : '';
+    const errorMessage =
+      typeof errorRecord.message === 'string' ? errorRecord.message.trim() : '';
+
+    return [errorCode, errorMessage].filter(Boolean).join(': ');
+  }
+
+  return 'Unknown error';
+};
+
 const withTimeout = async <T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -175,6 +209,102 @@ const withTimeout = async <T>(
 };
 
 const looksLikeEmail = (value: string) => value.includes('@');
+
+const getDataUrlSize = (dataUrl: string) => {
+  return dataUrl.length;
+};
+
+const canvasToJpegDataUrl = (
+  canvas: HTMLCanvasElement,
+  quality: number,
+) =>
+  new Promise<string>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error('ไม่สามารถบีบอัดรูปบัตรได้'));
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = typeof reader.result === 'string' ? reader.result : '';
+
+          if (!result) {
+            reject(new Error('ไม่สามารถอ่านรูปบัตรที่บีบอัดแล้วได้'));
+            return;
+          }
+
+          resolve(result);
+        };
+        reader.onerror = () => {
+          reject(new Error('ไม่สามารถอ่านรูปบัตรที่บีบอัดแล้วได้'));
+        };
+        reader.readAsDataURL(blob);
+      },
+      'image/jpeg',
+      quality,
+    );
+  });
+
+const loadImageFromFile = (file: File) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('ไม่สามารถอ่านรูปบัตรนี้ได้ กรุณาใช้ไฟล์ JPG, PNG หรือ WebP'));
+    };
+    image.src = objectUrl;
+  });
+
+const createVerificationCardImageDataUrl = async (file: File) => {
+  const image = await loadImageFromFile(file);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+
+  if (!sourceWidth || !sourceHeight) {
+    throw new Error('ไม่สามารถอ่านขนาดรูปบัตรนี้ได้');
+  }
+
+  for (const maxDimension of VERIFICATION_CARD_IMAGE_FALLBACK_DIMENSIONS) {
+    const ratio = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
+    const targetWidth = Math.max(1, Math.round(sourceWidth * ratio));
+    const targetHeight = Math.max(1, Math.round(sourceHeight * ratio));
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      throw new Error('เบราว์เซอร์นี้ไม่รองรับการบีบอัดรูปบัตร');
+    }
+
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    for (const quality of VERIFICATION_CARD_IMAGE_FALLBACK_QUALITIES) {
+      const dataUrl = await canvasToJpegDataUrl(canvas, quality);
+      const size = getDataUrlSize(dataUrl);
+
+      if (size <= VERIFICATION_CARD_IMAGE_FALLBACK_MAX_BYTES) {
+        return {
+          dataUrl,
+          contentType: 'image/jpeg',
+          size,
+        };
+      }
+    }
+  }
+
+  throw new Error(
+    'ไม่สามารถบีบอัดรูปบัตรให้เล็กพอสำหรับส่งคำขอได้ กรุณาลดขนาดรูปแล้วลองใหม่',
+  );
+};
 
 const getVerificationCardImageExtension = (file: File) => {
   const extension = file.name.split('.').pop()?.trim().toLowerCase();
@@ -285,6 +415,9 @@ const buildOrganizationVerificationRequestRecord = (
   const cardNumber = normalizeCardNumber(data?.cardNumber ?? '');
   const cardNumberLast4 =
     data?.cardNumberLast4?.trim() || (cardNumber ? cardNumber.slice(-4) : '');
+  const cardImageDataUrl = data?.cardImageDataUrl?.trim() ?? '';
+  const cardImageUrl = data?.cardImageUrl?.trim() || cardImageDataUrl;
+  const cardImageStorageStatus = data?.cardImageStorageStatus ?? '';
 
   return {
     uid: data?.uid?.trim() || uid,
@@ -295,10 +428,13 @@ const buildOrganizationVerificationRequestRecord = (
     cardNumber,
     cardNumberLast4,
     cardImagePath: data?.cardImagePath?.trim() ?? '',
-    cardImageUrl: data?.cardImageUrl?.trim() ?? '',
+    cardImageUrl,
+    cardImageDataUrl,
     cardImageName: data?.cardImageName?.trim() ?? '',
     cardImageContentType: data?.cardImageContentType?.trim() ?? '',
     cardImageSize: normalizeTimestamp(data?.cardImageSize),
+    cardImageStorageStatus,
+    cardImageUploadError: data?.cardImageUploadError?.trim() ?? '',
     status: normalizeVerificationRequestStatus(data?.status),
     submittedAt: normalizeTimestamp(data?.submittedAt),
     updatedAt: normalizeTimestamp(data?.updatedAt),
@@ -375,6 +511,36 @@ const buildUserProfileRecord = (
     organizationVerificationRequestStatus:
       fallbackData?.organizationVerificationRequestStatus ??
       primaryData?.organizationVerificationRequestStatus,
+    organizationVerificationCardNumber:
+      primaryData?.organizationVerificationCardNumber ??
+      fallbackData?.organizationVerificationCardNumber,
+    organizationVerificationCardNumberLast4:
+      primaryData?.organizationVerificationCardNumberLast4 ??
+      fallbackData?.organizationVerificationCardNumberLast4,
+    organizationVerificationCardImagePath:
+      primaryData?.organizationVerificationCardImagePath ??
+      fallbackData?.organizationVerificationCardImagePath,
+    organizationVerificationCardImageUrl:
+      primaryData?.organizationVerificationCardImageUrl ??
+      fallbackData?.organizationVerificationCardImageUrl,
+    organizationVerificationCardImageDataUrl:
+      primaryData?.organizationVerificationCardImageDataUrl ??
+      fallbackData?.organizationVerificationCardImageDataUrl,
+    organizationVerificationCardImageName:
+      primaryData?.organizationVerificationCardImageName ??
+      fallbackData?.organizationVerificationCardImageName,
+    organizationVerificationCardImageContentType:
+      primaryData?.organizationVerificationCardImageContentType ??
+      fallbackData?.organizationVerificationCardImageContentType,
+    organizationVerificationCardImageSize:
+      primaryData?.organizationVerificationCardImageSize ??
+      fallbackData?.organizationVerificationCardImageSize,
+    organizationVerificationCardImageStorageStatus:
+      primaryData?.organizationVerificationCardImageStorageStatus ??
+      fallbackData?.organizationVerificationCardImageStorageStatus,
+    organizationVerificationCardImageUploadError:
+      primaryData?.organizationVerificationCardImageUploadError ??
+      fallbackData?.organizationVerificationCardImageUploadError,
     isActive: fallbackData?.isActive ?? primaryData?.isActive,
     lastActiveAt:
       fallbackData?.lastActiveAt ?? primaryData?.lastActiveAt,
@@ -383,6 +549,21 @@ const buildUserProfileRecord = (
     activityUpdatedAt:
       fallbackData?.activityUpdatedAt ?? primaryData?.activityUpdatedAt,
     createdAt: primaryData?.createdAt ?? fallbackData?.createdAt ?? 0,
+  };
+};
+
+const buildUsernameMirrorData = (
+  profileData: Partial<UserProfileRecord>,
+  updates: Partial<UserProfileRecord>,
+) => {
+  const mirrorData: Partial<UserProfileRecord> = { ...profileData };
+
+  delete mirrorData.organizationVerificationCardImageDataUrl;
+  delete mirrorData.organizationVerificationCardImageUploadError;
+
+  return {
+    ...mirrorData,
+    ...updates,
   };
 };
 
@@ -644,21 +825,71 @@ export const submitOrganizationVerificationRequest = async ({
   const extension = getVerificationCardImageExtension(cardImage);
   const cardImagePath = `${ORGANIZATION_VERIFICATION_UPLOADS_PATH}/${uid}/${submittedAt}.${extension}`;
   const cardImageRef = storageRef(storage, cardImagePath);
+  let cardImagePayload: Pick<
+    OrganizationVerificationRequestRecord,
+    | 'cardImagePath'
+    | 'cardImageUrl'
+    | 'cardImageDataUrl'
+    | 'cardImageName'
+    | 'cardImageContentType'
+    | 'cardImageSize'
+    | 'cardImageStorageStatus'
+    | 'cardImageUploadError'
+  >;
 
-  await uploadVerificationCardImageWithTimeout(cardImageRef, cardImage, {
-    contentType: cardImage.type,
-    customMetadata: {
-      uid,
-      email: cleanEmail,
-      purpose: 'organization-verification',
-    },
-  });
+  try {
+    await uploadVerificationCardImageWithTimeout(cardImageRef, cardImage, {
+      contentType: cardImage.type,
+      customMetadata: {
+        uid,
+        email: cleanEmail,
+        purpose: 'organization-verification',
+      },
+    });
 
-  const cardImageUrl = await withTimeout(
-    getDownloadURL(cardImageRef),
-    VERIFICATION_REQUEST_TIMEOUT_MS,
-    'ดึงลิงก์รูปบัตรใช้เวลานานเกินไป กรุณาลองส่งคำขอใหม่อีกครั้ง',
-  );
+    const cardImageUrl = await withTimeout(
+      getDownloadURL(cardImageRef),
+      VERIFICATION_REQUEST_TIMEOUT_MS,
+      'ดึงลิงก์รูปบัตรใช้เวลานานเกินไป กรุณาลองส่งคำขอใหม่อีกครั้ง',
+    );
+
+    cardImagePayload = {
+      cardImagePath,
+      cardImageUrl,
+      cardImageDataUrl: '',
+      cardImageName: cardImage.name,
+      cardImageContentType: cardImage.type,
+      cardImageSize: cardImage.size,
+      cardImageStorageStatus: 'uploaded',
+      cardImageUploadError: '',
+    };
+  } catch (error) {
+    const uploadErrorMessage = getErrorMessageText(error);
+    console.warn(
+      'Failed to upload verification card image. Falling back to embedded image data.',
+      error,
+    );
+
+    const fallbackImage = await createVerificationCardImageDataUrl(cardImage).catch(
+      (fallbackError) => {
+        throw new Error(
+          `อัปโหลดรูปบัตรไม่สำเร็จ (${uploadErrorMessage}) และไม่สามารถบีบอัดรูปสำรองได้ (${getErrorMessageText(fallbackError)})`,
+        );
+      },
+    );
+
+    cardImagePayload = {
+      cardImagePath: '',
+      cardImageUrl: fallbackImage.dataUrl,
+      cardImageDataUrl: fallbackImage.dataUrl,
+      cardImageName: cardImage.name,
+      cardImageContentType: fallbackImage.contentType,
+      cardImageSize: fallbackImage.size,
+      cardImageStorageStatus: 'embedded',
+      cardImageUploadError: uploadErrorMessage,
+    };
+  }
+
   const profileRef = doc(db, PROFILES_COLLECTION, uid);
   const requestRef = doc(
     db,
@@ -666,77 +897,218 @@ export const submitOrganizationVerificationRequest = async ({
     uid,
   );
   const requestStatus = 'pending' as const;
+  const profileUpdates = {
+    fullName: cleanFullName,
+    organizationUnit: ORGANIZATION_UNIT,
+    organizationDivision: cleanDivision,
+    organizationStatus: 'pending' as OrganizationStatus,
+    organizationVerificationRequestedAt: submittedAt,
+    organizationVerificationRequestStatus: requestStatus,
+  };
+  const profileVerificationUpdates = {
+    ...profileUpdates,
+    organizationVerificationCardNumber: cleanCardNumber,
+    organizationVerificationCardNumberLast4: cleanCardNumber.slice(-4),
+    organizationVerificationCardImagePath: cardImagePayload.cardImagePath,
+    organizationVerificationCardImageUrl: cardImagePayload.cardImageUrl,
+    organizationVerificationCardImageDataUrl: cardImagePayload.cardImageDataUrl,
+    organizationVerificationCardImageName: cardImagePayload.cardImageName,
+    organizationVerificationCardImageContentType:
+      cardImagePayload.cardImageContentType,
+    organizationVerificationCardImageSize: cardImagePayload.cardImageSize,
+    organizationVerificationCardImageStorageStatus:
+      cardImagePayload.cardImageStorageStatus,
+    organizationVerificationCardImageUploadError:
+      cardImagePayload.cardImageUploadError,
+  };
 
-  await withTimeout(
-    runTransaction(db, async (transaction) => {
-      const profileSnapshot = await transaction.get(profileRef);
+  const writeProfileFallback = async () => {
+    const profileSnapshot = await withTimeout(
+      getDoc(profileRef),
+      VERIFICATION_REQUEST_TIMEOUT_MS,
+      'โหลดโปรไฟล์เพื่อบันทึกคำขอยืนยันตัวตนใช้เวลานานเกินไป',
+    );
 
-      if (!profileSnapshot.exists()) {
-        throw new Error('ไม่พบโปรไฟล์ผู้ใช้สำหรับส่งคำขอยืนยันตัวตน');
-      }
+    if (!profileSnapshot.exists()) {
+      throw new Error('ไม่พบโปรไฟล์ผู้ใช้สำหรับส่งคำขอยืนยันตัวตน');
+    }
 
-      const profileData = profileSnapshot.data() as Partial<UserProfileRecord>;
-      const cleanUsername = profileData.username?.trim() ?? '';
-      const normalizedUsername =
-        profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
-      const profileUpdates = {
-        fullName: cleanFullName,
-        organizationUnit: ORGANIZATION_UNIT,
-        organizationDivision: cleanDivision,
-        organizationStatus: 'pending' as OrganizationStatus,
-        organizationVerificationRequestedAt: submittedAt,
-        organizationVerificationRequestStatus: requestStatus,
-      };
+    const profileData = profileSnapshot.data() as Partial<UserProfileRecord>;
+    const cleanUsername = profileData.username?.trim() ?? '';
+    const normalizedUsername =
+      profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
+    const writes = [
+      setDoc(profileRef, profileVerificationUpdates, { merge: true }),
+    ];
 
-      transaction.set(
-        requestRef,
-        {
-          uid,
-          email: cleanEmail,
-          username: cleanUsername,
-          fullName: cleanFullName,
-          organizationDivision: cleanDivision,
-          cardNumber: cleanCardNumber,
-          cardNumberLast4: cleanCardNumber.slice(-4),
-          cardImagePath,
-          cardImageUrl,
-          cardImageName: cardImage.name,
-          cardImageContentType: cardImage.type,
-          cardImageSize: cardImage.size,
-          status: requestStatus,
-          submittedAt,
-          updatedAt: submittedAt,
-        },
-        { merge: true },
-      );
-      transaction.update(profileRef, profileUpdates);
-
-      if (normalizedUsername) {
-        const usernameRef = doc(db, USERNAMES_COLLECTION, normalizedUsername);
-
-        transaction.set(
-          usernameRef,
-          {
-            ...profileData,
+    if (normalizedUsername) {
+      writes.push(
+        setDoc(
+          doc(db, USERNAMES_COLLECTION, normalizedUsername),
+          buildUsernameMirrorData(profileData, {
             uid,
             username: cleanUsername,
             normalizedUsername,
             email: cleanEmail,
             ...profileUpdates,
+          }),
+          { merge: true },
+        ),
+      );
+    }
+
+    await withTimeout(
+      Promise.all(writes),
+      VERIFICATION_REQUEST_TIMEOUT_MS,
+      'บันทึกคำขอยืนยันตัวตนในโปรไฟล์ใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง',
+    );
+  };
+
+  try {
+    await withTimeout(
+      runTransaction(db, async (transaction) => {
+        const profileSnapshot = await transaction.get(profileRef);
+
+        if (!profileSnapshot.exists()) {
+          throw new Error('ไม่พบโปรไฟล์ผู้ใช้สำหรับส่งคำขอยืนยันตัวตน');
+        }
+
+        const profileData = profileSnapshot.data() as Partial<UserProfileRecord>;
+        const cleanUsername = profileData.username?.trim() ?? '';
+        const normalizedUsername =
+          profileData.normalizedUsername ?? normalizeUsername(cleanUsername);
+
+        transaction.set(
+          requestRef,
+          {
+            uid,
+            email: cleanEmail,
+            username: cleanUsername,
+            fullName: cleanFullName,
+            organizationDivision: cleanDivision,
+            cardNumber: cleanCardNumber,
+            cardNumberLast4: cleanCardNumber.slice(-4),
+            ...cardImagePayload,
+            status: requestStatus,
+            submittedAt,
+            updatedAt: submittedAt,
           },
           { merge: true },
         );
-      }
-    }),
-    VERIFICATION_REQUEST_TIMEOUT_MS,
-    'บันทึกคำขอยืนยันตัวตนใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองส่งใหม่อีกครั้ง',
-  );
+        transaction.update(profileRef, profileUpdates);
+
+        if (normalizedUsername) {
+          const usernameRef = doc(db, USERNAMES_COLLECTION, normalizedUsername);
+
+          transaction.set(
+            usernameRef,
+            buildUsernameMirrorData(profileData, {
+              uid,
+              username: cleanUsername,
+              normalizedUsername,
+              email: cleanEmail,
+              ...profileUpdates,
+            }),
+            { merge: true },
+          );
+        }
+      }),
+      VERIFICATION_REQUEST_TIMEOUT_MS,
+      'บันทึกคำขอยืนยันตัวตนใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองส่งใหม่อีกครั้ง',
+    );
+  } catch (error) {
+    console.warn(
+      'Failed to write verification request document. Falling back to profile-only verification request.',
+      error,
+    );
+
+    try {
+      await writeProfileFallback();
+    } catch (fallbackError) {
+      throw new Error(
+        `ไม่สามารถบันทึกคำขอยืนยันตัวตนได้ (${getErrorMessageText(error)}) และบันทึกสำรองในโปรไฟล์ไม่สำเร็จ (${getErrorMessageText(fallbackError)})`,
+      );
+    }
+  }
 
   return withTimeout(
     getUserProfile(uid, email),
     VERIFICATION_REQUEST_TIMEOUT_MS,
     'โหลดสถานะคำขอยืนยันตัวตนใช้เวลานานเกินไป กรุณารีเฟรชหน้าเพื่อตรวจสอบสถานะล่าสุด',
   );
+};
+
+const buildOrganizationVerificationRequestRecordFromProfile = (
+  profile: UserProfileRecord,
+) =>
+  buildOrganizationVerificationRequestRecord(profile.uid, {
+    uid: profile.uid,
+    email: profile.email,
+    username: profile.username,
+    fullName: profile.fullName,
+    organizationDivision: profile.organizationDivision,
+    cardNumber: profile.organizationVerificationCardNumber,
+    cardNumberLast4: profile.organizationVerificationCardNumberLast4,
+    cardImagePath: profile.organizationVerificationCardImagePath,
+    cardImageUrl:
+      profile.organizationVerificationCardImageUrl ||
+      profile.organizationVerificationCardImageDataUrl,
+    cardImageDataUrl: profile.organizationVerificationCardImageDataUrl,
+    cardImageName: profile.organizationVerificationCardImageName,
+    cardImageContentType:
+      profile.organizationVerificationCardImageContentType,
+    cardImageSize: profile.organizationVerificationCardImageSize,
+    cardImageStorageStatus:
+      profile.organizationVerificationCardImageStorageStatus,
+    cardImageUploadError: profile.organizationVerificationCardImageUploadError,
+    status: 'pending',
+    submittedAt: profile.organizationVerificationRequestedAt,
+    updatedAt:
+      profile.organizationVerificationRequestedAt ?? profile.createdAt,
+  });
+
+const mergeOrganizationVerificationRequestRecords = (
+  records: OrganizationVerificationRequestRecord[],
+) => {
+  const mergedRecords = new Map<string, OrganizationVerificationRequestRecord>();
+
+  records.forEach((record) => {
+    const existingRecord = mergedRecords.get(record.uid);
+
+    if (
+      !existingRecord ||
+      (!existingRecord.cardImageUrl && record.cardImageUrl) ||
+      record.updatedAt > existingRecord.updatedAt
+    ) {
+      mergedRecords.set(record.uid, {
+        ...existingRecord,
+        ...record,
+        cardImageUrl: record.cardImageUrl || existingRecord?.cardImageUrl || '',
+        cardImageDataUrl:
+          record.cardImageDataUrl || existingRecord?.cardImageDataUrl || '',
+      });
+    }
+  });
+
+  return [...mergedRecords.values()].sort((left, right) => {
+    if (left.submittedAt !== right.submittedAt) {
+      return right.submittedAt - left.submittedAt;
+    }
+
+    return right.updatedAt - left.updatedAt;
+  });
+};
+
+const fetchPendingOrganizationVerificationRequestsFromProfiles = async () => {
+  const profiles = await fetchUserProfiles();
+
+  return profiles
+    .filter(
+      (profile) =>
+        profile.organizationVerificationRequestStatus === 'pending' &&
+        Boolean(profile.organizationVerificationRequestedAt),
+    )
+    .map(buildOrganizationVerificationRequestRecordFromProfile);
 };
 
 export const fetchPendingOrganizationVerificationRequests = async () => {
@@ -748,53 +1120,30 @@ export const fetchPendingOrganizationVerificationRequests = async () => {
       ),
     );
 
-    return snapshot.docs
+    const requestRecords = snapshot.docs
       .map((requestDoc) =>
         buildOrganizationVerificationRequestRecord(
           requestDoc.id,
           requestDoc.data() as OrganizationVerificationRequestDocument,
         ),
-      )
-      .sort((left, right) => {
-        if (left.submittedAt !== right.submittedAt) {
-          return right.submittedAt - left.submittedAt;
-        }
+      );
+    const profileRecords =
+      await fetchPendingOrganizationVerificationRequestsFromProfiles().catch(
+        () => [],
+      );
 
-        return right.updatedAt - left.updatedAt;
-      });
+    return mergeOrganizationVerificationRequestRecords([
+      ...profileRecords,
+      ...requestRecords,
+    ]);
   } catch (error) {
     if (!isFirestorePermissionDeniedError(error)) {
       throw error;
     }
 
-    const profiles = await fetchUserProfiles();
-
-    return profiles
-      .filter(
-        (profile) =>
-          profile.organizationVerificationRequestStatus === 'pending' &&
-          Boolean(profile.organizationVerificationRequestedAt),
-      )
-      .map((profile) =>
-        buildOrganizationVerificationRequestRecord(profile.uid, {
-          uid: profile.uid,
-          email: profile.email,
-          username: profile.username,
-          fullName: profile.fullName,
-          organizationDivision: profile.organizationDivision,
-          status: 'pending',
-          submittedAt: profile.organizationVerificationRequestedAt,
-          updatedAt:
-            profile.organizationVerificationRequestedAt ?? profile.createdAt,
-        }),
-      )
-      .sort((left, right) => {
-        if (left.submittedAt !== right.submittedAt) {
-          return right.submittedAt - left.submittedAt;
-        }
-
-        return right.updatedAt - left.updatedAt;
-      });
+    return mergeOrganizationVerificationRequestRecords(
+      await fetchPendingOrganizationVerificationRequestsFromProfiles(),
+    );
   }
 };
 
