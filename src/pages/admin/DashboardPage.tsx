@@ -17,17 +17,21 @@ import AdminBookingTable from '../../components/admin/AdminBookingTable';
 import AdminCalendar from '../../components/admin/AdminCalendar';
 import AdminEquipmentCreateModal from '../../components/admin/AdminEquipmentCreateModal';
 import AdminUserDirectory from '../../components/admin/AdminUserDirectory';
+import AdminVerificationRequestsPanel from '../../components/admin/AdminVerificationRequestsPanel';
 import { useThaiDateTime } from '../../hooks/useThaiDateTime';
 import { ApiError } from '../../lib/api';
+import { fetchAdminUserProfiles } from '../../lib/adminVerificationAccess';
 import {
   deleteEquipment,
   fetchAdminEquipmentList,
   type AdminEquipmentListItem,
   type EquipmentConditionStatus,
 } from '../../lib/equipmentApi';
-import { fetchUserProfiles, type UserProfileRecord } from '../../lib/firebase';
+import { type UserProfileRecord } from '../../lib/firebase';
 import {
   getDirectoryIdentityKeys,
+  isBookingFallbackDirectoryUser,
+  readDismissedBookingDirectoryUserKeys,
   readHiddenDirectoryUserKeys,
 } from '../../utils/adminUserDirectory';
 import { getThaiMonthYearLabel } from '../../utils/date';
@@ -163,6 +167,30 @@ const getEquipmentErrorMessage = (error: unknown, fallbackMessage: string) => {
   return fallbackMessage;
 };
 
+const getUserProfilesErrorMessage = (error: unknown) => {
+  if (typeof error === 'object' && error !== null) {
+    const errorRecord = error as { code?: unknown; message?: unknown };
+    const errorCode =
+      typeof errorRecord.code === 'string' ? errorRecord.code.trim() : '';
+    const errorMessage =
+      typeof errorRecord.message === 'string' ? errorRecord.message.trim() : '';
+
+    if (
+      errorCode === 'permission-denied' ||
+      errorCode === 'firestore/permission-denied' ||
+      errorMessage.includes('Missing or insufficient permissions')
+    ) {
+      return 'บัญชีแอดมินนี้ยังไม่มีสิทธิ์อ่านรายชื่อผู้ใช้จาก Firestore จะแสดงได้เฉพาะผู้ใช้ที่มีข้อมูลจากรายการจอง';
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return 'ไม่สามารถโหลดรายชื่อผู้ใช้ได้ กรุณาลองใหม่อีกครั้ง';
+};
+
 const createFallbackProfileFromBooking = (
   booking: AdminBooking,
 ): UserProfileRecord | null => {
@@ -250,6 +278,8 @@ export default function DashboardPage({
   const [hiddenDirectoryUserKeys, setHiddenDirectoryUserKeys] = useState<Set<string>>(
     readHiddenDirectoryUserKeys,
   );
+  const [dismissedBookingDirectoryUserKeys, setDismissedBookingDirectoryUserKeys] =
+    useState<Set<string>>(readDismissedBookingDirectoryUserKeys);
   const [hasLoadedUserProfiles, setHasLoadedUserProfiles] = useState(false);
   const [userProfilesError, setUserProfilesError] = useState('');
   const [userDirectorySearch, setUserDirectorySearch] = useState('');
@@ -322,17 +352,25 @@ export default function DashboardPage({
     [adminBookings],
   );
   const directoryUsers = useMemo(
-    () => mergeUserProfiles(userProfiles, bookingUserProfiles),
-    [bookingUserProfiles, userProfiles],
-  );
-  const visibleDirectoryUsers = useMemo(
     () =>
-      directoryUsers.filter(
-        (user) =>
-          !getDirectoryIdentityKeys(user).some((key) =>
-            hiddenDirectoryUserKeys.has(key),
-          ),
-      ),
+      mergeUserProfiles(userProfiles, bookingUserProfiles).filter((user) => {
+        if (!isBookingFallbackDirectoryUser(user)) {
+          return true;
+        }
+
+        return !getDirectoryIdentityKeys(user).some((key) =>
+          dismissedBookingDirectoryUserKeys.has(key),
+        );
+      }),
+    [bookingUserProfiles, dismissedBookingDirectoryUserKeys, userProfiles],
+  );
+  const hiddenDirectoryUserCount = useMemo(
+    () =>
+      directoryUsers.filter((user) =>
+        getDirectoryIdentityKeys(user).some((key) =>
+          hiddenDirectoryUserKeys.has(key),
+        ),
+      ).length,
     [directoryUsers, hiddenDirectoryUserKeys],
   );
   const activeBookingCountByKey = useMemo(
@@ -449,7 +487,7 @@ export default function DashboardPage({
     (notification) => !notification.isRead,
   ).length;
   const userTotalCount = hasLoadedUserProfiles
-    ? visibleDirectoryUsers.length
+    ? directoryUsers.length
     : activeUsers;
 
   const loadUserProfiles = useCallback(async () => {
@@ -459,7 +497,7 @@ export default function DashboardPage({
     setUserProfilesError('');
 
     try {
-      const profiles = await fetchUserProfiles();
+      const profiles = await fetchAdminUserProfiles();
 
       if (
         !isDashboardMountedRef.current ||
@@ -481,7 +519,7 @@ export default function DashboardPage({
       }
 
       setHasLoadedUserProfiles(true);
-      setUserProfilesError('ไม่สามารถโหลดรายชื่อผู้ใช้ได้ กรุณาลองใหม่อีกครั้ง');
+      setUserProfilesError(getUserProfilesErrorMessage(error));
     } finally {
       if (
         isDashboardMountedRef.current &&
@@ -588,10 +626,6 @@ export default function DashboardPage({
 
     setUserDirectorySearch('');
     setIsUserDirectoryOpen(true);
-
-    if (!hasLoadedUserProfiles && !isUserProfilesLoading) {
-      void loadUserProfiles();
-    }
   };
 
   const handleToggleBookingStatusFilter = (status: AdminBookingStatus) => {
@@ -679,6 +713,9 @@ export default function DashboardPage({
   useEffect(() => {
     const syncHiddenDirectoryUsers = () => {
       setHiddenDirectoryUserKeys(readHiddenDirectoryUserKeys());
+      setDismissedBookingDirectoryUserKeys(
+        readDismissedBookingDirectoryUserKeys(),
+      );
     };
 
     window.addEventListener('storage', syncHiddenDirectoryUsers);
@@ -709,6 +746,8 @@ export default function DashboardPage({
     if (!isUserDirectoryOpen) {
       return () => undefined;
     }
+
+    void loadUserProfiles();
 
     const intervalId = window.setInterval(() => {
       void loadUserProfiles();
@@ -905,7 +944,11 @@ export default function DashboardPage({
               <span className="text-[12px] font-medium text-gray-500">คน</span>
             </div>
             <p className="mt-3 text-[10px] font-black uppercase tracking-[0.18em] text-[var(--systemhub-accent)]">
-              {isUserDirectoryOpen ? 'ซ่อนรายชื่อ' : 'ดูรายชื่อ'}
+              {hiddenDirectoryUserCount > 0
+                ? `มีผู้ใช้ที่ซ่อนอยู่ ${hiddenDirectoryUserCount.toLocaleString()}`
+                : isUserDirectoryOpen
+                  ? 'ซ่อนรายชื่อ'
+                  : 'ดูรายชื่อ'}
             </p>
           </div>
           <div className="h-16 w-16 opacity-10 transition-opacity group-hover:opacity-20">
@@ -978,6 +1021,8 @@ export default function DashboardPage({
         </button>
       </div>
 
+      <AdminVerificationRequestsPanel onRequestHandled={loadUserProfiles} />
+
       {isUserDirectoryOpen && (
         <AdminUserDirectory
           users={directoryUsers}
@@ -985,6 +1030,7 @@ export default function DashboardPage({
           isLoading={isUserProfilesLoading}
           errorMessage={userProfilesError}
           onHiddenUsersChange={setHiddenDirectoryUserKeys}
+          onDismissedBookingUsersChange={setDismissedBookingDirectoryUserKeys}
           onSearchChange={setUserDirectorySearch}
           onRefresh={loadUserProfiles}
           onClose={handleCloseUserDirectory}
@@ -1062,6 +1108,7 @@ export default function DashboardPage({
                       {totalAvailableEquipmentQuantity.toLocaleString()} / {totalEquipmentQuantity.toLocaleString()}
                     </p>
                   </div>
+
                 </div>
 
                 <div className="flex flex-col gap-3 md:flex-row md:items-center">

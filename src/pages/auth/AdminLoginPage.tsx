@@ -23,8 +23,8 @@ export default function AdminLoginPage(props: AdminLoginPageProps) {
       submitLabel="เข้าสู่ระบบแอดมิน"
       submitIcon={ShieldCheck}
       accent="admin"
-      usernameLabel="ID แอดมิน"
-      usernamePlaceholder="ADMIN-01"
+      usernameLabel="อีเมลแอดมิน"
+      usernamePlaceholder="admin@example.com"
       usernameType="email"
       usernameAutoComplete="email"
       username={props.username}

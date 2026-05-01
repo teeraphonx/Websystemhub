@@ -22,7 +22,7 @@ const THAI_DATE_FORMATTER = new Intl.DateTimeFormat('th-TH', {
   timeZone: 'Asia/Bangkok',
 });
 
-const DEFAULT_PICKUP_LOCATION = 'ฝ่ายอำนวยการ';
+const DEFAULT_PICKUP_LOCATION = 'ฝ่ายอำนวยการ | งานส่งกำลังบำรุงและงานเทคโนฯ';
 
 const findBookingIcon = (
   itemId: string,

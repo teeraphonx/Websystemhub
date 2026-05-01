@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
-  AlertTriangle,
   Boxes,
+  FileImage,
   PackagePlus,
   RotateCcw,
   Save,
+  Upload,
   Warehouse,
   X,
 } from 'lucide-react';
@@ -12,7 +13,11 @@ import { ApiError } from '../../lib/api';
 import {
   ADMIN_EQUIPMENT_CATEGORY_OPTIONS,
   ADMIN_EQUIPMENT_CONDITION_OPTIONS,
+  ADMIN_EQUIPMENT_IMAGE_ACCEPT,
+  ADMIN_EQUIPMENT_IMAGE_MAX_SIZE_BYTES,
   createEquipment,
+  uploadEquipmentImage,
+  validateEquipmentImageFile,
   type CreateEquipmentInput,
 } from '../../lib/equipmentApi';
 
@@ -73,6 +78,8 @@ const normalizePositiveInteger = (value: string, fallbackValue: number) => {
   return Math.max(Math.trunc(parsedValue), 0);
 };
 
+const formatFileSize = (size: number) => `${(size / (1024 * 1024)).toFixed(2)} MB`;
+
 export default function AdminEquipmentCreateModal({
   isOpen,
   onClose,
@@ -81,6 +88,8 @@ export default function AdminEquipmentCreateModal({
     createInitialFormState,
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const isQuantityInvalid =
@@ -100,16 +109,36 @@ export default function AdminEquipmentCreateModal({
     }
 
     setFormState(createInitialFormState());
+    setImageFile(null);
     setErrorMessage('');
     setSuccessMessage('');
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreviewUrl('');
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(imageFile);
+    setImagePreviewUrl(previewUrl);
+
+    return () => {
+      URL.revokeObjectURL(previewUrl);
+    };
+  }, [imageFile]);
 
   if (!isOpen) {
     return null;
   }
 
-  const resetForm = () => {
+  const clearFormFields = () => {
     setFormState(createInitialFormState());
+    setImageFile(null);
+  };
+
+  const resetForm = () => {
+    clearFormFields();
     setErrorMessage('');
     setSuccessMessage('');
   };
@@ -120,6 +149,24 @@ export default function AdminEquipmentCreateModal({
     }
 
     onClose();
+  };
+
+  const handleImageFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextImageFile = event.target.files?.[0] ?? null;
+    event.target.value = '';
+
+    if (!nextImageFile) {
+      return;
+    }
+
+    try {
+      validateEquipmentImageFile(nextImageFile);
+      setImageFile(nextImageFile);
+      setErrorMessage('');
+      setSuccessMessage('');
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    }
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -137,10 +184,32 @@ export default function AdminEquipmentCreateModal({
       const createdEquipment = await createEquipment(formState);
       const createdEquipmentName = createdEquipment?.name ?? formState.name.trim();
 
+      if (imageFile) {
+        const createdEquipmentId = createdEquipment?.id;
+
+        if (!createdEquipmentId) {
+          clearFormFields();
+          setErrorMessage(
+            `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว แต่ยังอัปโหลดรูปไม่สำเร็จ เพราะ backend ไม่ส่งรหัสรายการกลับมา`,
+          );
+          return;
+        }
+
+        try {
+          await uploadEquipmentImage(createdEquipmentId, imageFile);
+        } catch (error) {
+          clearFormFields();
+          setErrorMessage(
+            `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว แต่การอัปโหลดรูปไม่สำเร็จ: ${getErrorMessage(error)}`,
+          );
+          return;
+        }
+      }
+
       setSuccessMessage(
         `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว รายการใหม่จะซิงก์กลับเข้าหน้าจองอัตโนมัติเมื่อระบบรีเฟรชข้อมูลรอบถัดไป`,
       );
-      setFormState(createInitialFormState());
+      clearFormFields();
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
@@ -354,6 +423,71 @@ export default function AdminEquipmentCreateModal({
                   className="systemhub-field w-full rounded-xl px-4 py-3.5 text-[14px] font-bold text-white outline-none transition-all"
                 />
               </label>
+
+              <div className="rounded-2xl border border-[rgba(59,130,246,0.18)] bg-[rgba(10,15,29,0.46)] p-5">
+                <div className="mb-3 flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgba(59,130,246,0.28)] bg-[rgba(37,99,235,0.12)] text-[var(--systemhub-accent)]">
+                    <FileImage size={20} />
+                  </div>
+                  <div>
+                    <p className="text-[12px] font-black uppercase tracking-widest text-white">
+                      รูปครุภัณฑ์
+                    </p>
+                    <p className="mt-1 text-[11px] font-bold leading-5 text-gray-500">
+                      แนบรูปเพื่อให้หน้าแสดงรายละเอียดและหน้าจองดึงภาพไปใช้ได้ทันที
+                    </p>
+                  </div>
+                </div>
+
+                <label
+                  className={`flex cursor-pointer items-center gap-4 rounded-2xl border border-dashed border-[rgba(96,165,250,0.42)] bg-[rgba(37,99,235,0.08)] p-4 transition-all hover:border-[var(--systemhub-accent)] hover:bg-[rgba(37,99,235,0.14)] ${isSubmitting ? 'pointer-events-none opacity-70' : ''}`}
+                >
+                  <input
+                    type="file"
+                    accept={ADMIN_EQUIPMENT_IMAGE_ACCEPT}
+                    disabled={isSubmitting}
+                    onChange={handleImageFileChange}
+                    className="sr-only"
+                  />
+
+                  {imagePreviewUrl ? (
+                    <img
+                      src={imagePreviewUrl}
+                      alt="ตัวอย่างรูปครุภัณฑ์"
+                      className="h-20 w-20 shrink-0 rounded-2xl border border-[rgba(148,163,184,0.18)] object-cover shadow-[0_16px_34px_rgba(0,0,0,0.3)]"
+                    />
+                  ) : (
+                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-[rgba(96,165,250,0.34)] bg-[rgba(15,23,42,0.72)] text-[var(--systemhub-accent)]">
+                      <Upload size={28} />
+                    </div>
+                  )}
+
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] font-black text-white">
+                      {imageFile ? imageFile.name : 'เลือกรูปครุภัณฑ์'}
+                    </p>
+                    <p className="mt-1 text-[12px] font-bold text-gray-500">
+                      {imageFile
+                        ? formatFileSize(imageFile.size)
+                        : `JPG, PNG, WebP, HEIC ไม่เกิน ${formatFileSize(ADMIN_EQUIPMENT_IMAGE_MAX_SIZE_BYTES)}`}
+                    </p>
+                  </div>
+                </label>
+
+                {imageFile && (
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setImageFile(null)}
+                      disabled={isSubmitting}
+                      className="inline-flex items-center gap-2 rounded-xl border border-[rgba(239,68,68,0.24)] bg-[rgba(127,29,29,0.14)] px-3 py-2 text-[11px] font-black tracking-widest text-[#fca5a5] transition-colors hover:border-[rgba(248,113,113,0.38)] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <X size={14} />
+                      ล้างรูป
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="space-y-5">
@@ -421,26 +555,6 @@ export default function AdminEquipmentCreateModal({
                 )}
               </div>
 
-              <div className="rounded-2xl border border-[rgba(59,130,246,0.18)] bg-[rgba(10,15,29,0.46)] p-5">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle
-                    size={18}
-                    className="mt-0.5 shrink-0 text-[var(--systemhub-accent)]"
-                  />
-                  <div className="text-[12px] font-bold leading-6 text-gray-400">
-                    ถ้าปุ่มบันทึกตอบกลับ `401` ให้ตรวจสอบว่า admin ยังคงล็อกอินอยู่
-                    และ backend ใช้ค่า `ADMIN_FIREBASE_PROJECT_ID` ตรงกับโปรเจกต์
-                    Firebase admin ปัจจุบัน
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-[rgba(59,130,246,0.18)] bg-[rgba(10,15,29,0.46)] p-5 text-[12px] font-bold leading-6 text-gray-400">
-                backend ตัวที่ใช้อยู่ตอนนี้ยังไม่มี column สำหรับรูปครุภัณฑ์ในตาราง
-                `equipment` ดังนั้นฟอร์มนี้จะบันทึกข้อมูลหลักของรายการก่อน
-                ถ้าต้องการแนบรูป เราต้องเพิ่ม field ใน backend อีกชั้นครับ
-              </div>
-
               {successMessage && (
                 <div className="rounded-2xl border border-[rgba(34,197,94,0.28)] bg-[rgba(34,197,94,0.1)] p-4 text-[12px] font-bold leading-6 text-[#86efac]">
                   {successMessage}
@@ -479,7 +593,11 @@ export default function AdminEquipmentCreateModal({
               className="btn-shine systemhub-primary-button inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-[12px] font-black tracking-widest text-white transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-[rgba(51,65,85,0.8)] disabled:text-gray-400 disabled:shadow-none"
             >
               <Save size={15} strokeWidth={2.5} />
-              {isSubmitting ? 'กำลังบันทึก...' : 'บันทึกครุภัณฑ์'}
+              {isSubmitting
+                ? imageFile
+                  ? 'กำลังอัปโหลดและบันทึก...'
+                  : 'กำลังบันทึก...'
+                : 'บันทึกครุภัณฑ์'}
             </button>
           </div>
         </form>

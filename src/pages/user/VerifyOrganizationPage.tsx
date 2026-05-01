@@ -7,15 +7,18 @@ import {
   IdCard,
   ShieldCheck,
   Upload,
+  UserRound,
 } from 'lucide-react';
 
 interface VerifyOrganizationPageProps {
   email: string;
+  fullName: string;
   division: string;
   cardNumber: string;
   cardImage: File | null;
   hasSubmittedRequest: boolean;
   isSubmitting: boolean;
+  onFullNameChange: (value: string) => void;
   onDivisionChange: (value: string) => void;
   onCardNumberChange: (value: string) => void;
   onCardImageChange: (file: File | null) => void;
@@ -27,11 +30,13 @@ const formatFileSize = (size: number) => `${(size / (1024 * 1024)).toFixed(2)} M
 
 export default function VerifyOrganizationPage({
   email,
+  fullName,
   division,
   cardNumber,
   cardImage,
   hasSubmittedRequest,
   isSubmitting,
+  onFullNameChange,
   onDivisionChange,
   onCardNumberChange,
   onCardImageChange,
@@ -40,6 +45,7 @@ export default function VerifyOrganizationPage({
 }: VerifyOrganizationPageProps) {
   const handleCardImageChange = (event: ChangeEvent<HTMLInputElement>) => {
     onCardImageChange(event.target.files?.[0] ?? null);
+    event.target.value = '';
   };
 
   return (
@@ -54,7 +60,7 @@ export default function VerifyOrganizationPage({
             <div className="absolute bottom-24 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-2xl border border-[rgba(34,197,94,0.32)] bg-[rgba(34,197,94,0.12)] px-4 py-3 text-[#86efac]">
               <CheckCircle size={18} />
               <span className="text-[11px] font-black uppercase tracking-widest">
-                BKSOT 1
+                CCID 1
               </span>
             </div>
             <div className="absolute left-2 top-28 flex h-14 w-14 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.88)] text-gray-300 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
@@ -76,7 +82,7 @@ export default function VerifyOrganizationPage({
               ยืนยันตัวตน บก.สอท.1
             </h1>
             <p className="mt-3 max-w-[34rem] text-[14px] leading-7 text-gray-400">
-              บัญชีของคุณสมัครและยืนยันอีเมลแล้ว กรุณาระบุกองกำกับการ พร้อมส่งรูปบัตรและเลขบัตรเพื่อให้แอดมินตรวจสอบก่อนเปิดใช้งานระบบจองครุภัณฑ์
+              บัญชีของคุณสมัครและยืนยันอีเมลแล้ว กรุณากรอกชื่อ-นามสกุลในช่องเดียว ระบุกองกำกับการ พร้อมส่งรูปบัตรและเลขบัตรเพื่อให้แอดมินตรวจสอบก่อนเปิดใช้งานระบบจองครุภัณฑ์
             </p>
           </div>
 
@@ -105,6 +111,22 @@ export default function VerifyOrganizationPage({
                   {email || 'ไม่พบอีเมลในระบบ'}
                 </span>
               </div>
+            </div>
+
+            <div className="space-y-2 text-left group">
+              <label className="ml-1 flex items-center gap-3 text-[13px] font-bold uppercase tracking-widest text-gray-500 transition-colors group-focus-within:text-[var(--systemhub-accent)]">
+                <UserRound size={15} />
+                <span>ชื่อ-นามสกุล</span>
+              </label>
+              <input
+                type="text"
+                value={fullName}
+                autoComplete="name"
+                disabled={isSubmitting}
+                onChange={(event) => onFullNameChange(event.target.value)}
+                placeholder="เช่น สมชาย ใจดี"
+                className="systemhub-auth-input w-full rounded-xl px-5 py-3.5 text-[14px] text-white outline-none transition-all disabled:cursor-not-allowed disabled:opacity-70"
+              />
             </div>
 
             <div className="space-y-2 text-left group">

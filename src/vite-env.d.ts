@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_ADMIN_ALLOWED_EMAILS?: string;
+  readonly VITE_ADMIN_ALLOWED_UIDS?: string;
   readonly VITE_ADMIN_FIREBASE_API_KEY?: string;
   readonly VITE_ADMIN_FIREBASE_AUTH_DOMAIN?: string;
   readonly VITE_ADMIN_FIREBASE_PROJECT_ID?: string;

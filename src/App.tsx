@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEventHandler } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEventHandler } from 'react';
 import {
   createUserWithEmailAndPassword,
   deleteUser,
@@ -43,11 +43,13 @@ import DashboardPage from './pages/admin/DashboardPage';
 import { appDataStore } from './lib/appDataStore';
 import {
   getAdminAuth,
+  hasAdminAccess,
   isAdminFirebaseConfigured,
   setAdminFirebaseAuthPersistence,
 } from './lib/adminFirebase';
 import {
   auth,
+  validateVerificationCardImageFile,
   createUserProfile,
   getFirebaseAuth,
   getUserProfile,
@@ -66,6 +68,12 @@ import {
   isPromoPopupSuppressed,
   suppressPromoPopupForOneHour,
 } from './utils/promo';
+import {
+  buildUserActivityIdentityKeys,
+  persistUserActivityIdentityRegistry,
+  pruneUserActivityIdentityRegistry,
+  readUserActivityIdentityRegistry,
+} from './utils/userActivityPresence';
 import {
   createAdminFirebaseNotConfiguredModal,
   getAuthSuccessMessage,
@@ -102,9 +110,31 @@ const REDIRECT_DELAY_MS = 1400;
 const PROMO_POPUP_DELAY_MS = 120;
 const PROMO_AFTER_AUTH_BUFFER_MS = 500;
 const USER_ACTIVITY_HEARTBEAT_MS = 60000;
+const USER_ACTIVITY_TABS_STORAGE_KEY = 'systemhub-user-activity-tabs-v1';
+const USER_ACTIVITY_TAB_STALE_MS = USER_ACTIVITY_HEARTBEAT_MS * 3;
 const CATEGORY_IDS: CategoryId[] = ['it', 'av', 'furniture', 'inspection'];
 const HISTORY_TIME_PATTERN = /(\d{1,2}:\d{2})/;
-const DEFAULT_PICKUP_LOCATION = 'ฝ่ายอำนวยการ';
+const DEFAULT_PICKUP_LOCATION = 'ฝ่ายอำนวยการ | งานส่งกำลังบำรุงและงานเทคโนฯ';
+
+const getAdminAccessErrorMessage = (uid: string, error?: unknown) => {
+  if (typeof error === 'object' && error !== null) {
+    const errorRecord = error as { code?: unknown; message?: unknown };
+    const errorCode =
+      typeof errorRecord.code === 'string' ? errorRecord.code.trim() : '';
+    const errorMessage =
+      typeof errorRecord.message === 'string' ? errorRecord.message.trim() : '';
+
+    if (
+      errorCode === 'permission-denied' ||
+      errorCode === 'firestore/permission-denied' ||
+      errorMessage.includes('Missing or insufficient permissions')
+    ) {
+      return `ยังอ่านสิทธิ์แอดมินไม่ได้ กรุณาเพิ่ม custom claim admin=true หรือ role=admin, เปิดสิทธิ์ให้อ่านเอกสาร admins/${uid} หรือ admins/{email} ใน Firestore หรือเพิ่ม UID ไว้ใน VITE_ADMIN_ALLOWED_UIDS หรืออีเมลไว้ใน VITE_ADMIN_ALLOWED_EMAILS ก่อน`;
+    }
+  }
+
+  return `บัญชีนี้ยังไม่ได้รับสิทธิ์หน้าแอดมิน กรุณาเพิ่ม custom claim admin=true หรือ role=admin, สร้างเอกสาร admins/${uid} หรือ admins/{email} ใน Firestore แล้วตั้ง active=true/role=admin หรือเพิ่ม UID ไว้ใน VITE_ADMIN_ALLOWED_UIDS หรืออีเมลไว้ใน VITE_ADMIN_ALLOWED_EMAILS`;
+};
 
 const getEmailVerificationActionSettings = () => ({
   url: `${window.location.origin}${VERIFY_EMAIL_ROUTE}`,
@@ -115,6 +145,111 @@ const normalizeIdentity = (value: string) => value.trim().toLowerCase();
 
 const getSortableTime = (value: string) =>
   value.match(HISTORY_TIME_PATTERN)?.[1] ?? '';
+
+type UserActivityTabRegistry = Record<string, Record<string, number>>;
+
+const createUserActivityTabId = () => {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
+    return crypto.randomUUID();
+  }
+
+  return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const readUserActivityTabRegistry = (): UserActivityTabRegistry => {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(USER_ACTIVITY_TABS_STORAGE_KEY);
+
+    if (!rawValue) {
+      return {};
+    }
+
+    const parsedValue = JSON.parse(rawValue) as unknown;
+
+    if (typeof parsedValue !== 'object' || parsedValue === null) {
+      return {};
+    }
+
+    const normalizedRegistry: UserActivityTabRegistry = {};
+
+    Object.entries(parsedValue as Record<string, unknown>).forEach(
+      ([uid, value]) => {
+        if (!uid.trim() || typeof value !== 'object' || value === null) {
+          return;
+        }
+
+        const entries = Object.entries(value as Record<string, unknown>).filter(
+          ([tabId, timestamp]) =>
+            tabId.trim() &&
+            typeof timestamp === 'number' &&
+            Number.isFinite(timestamp),
+        );
+
+        if (entries.length === 0) {
+          return;
+        }
+
+        normalizedRegistry[uid] = entries.reduce<Record<string, number>>(
+          (currentTabs, [tabId, timestamp]) => {
+            currentTabs[tabId] = timestamp as number;
+            return currentTabs;
+          },
+          {},
+        );
+      },
+    );
+
+    return normalizedRegistry;
+  } catch {
+    return {};
+  }
+};
+
+const persistUserActivityTabRegistry = (registry: UserActivityTabRegistry) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(
+    USER_ACTIVITY_TABS_STORAGE_KEY,
+    JSON.stringify(registry),
+  );
+};
+
+const pruneUserActivityTabRegistry = (
+  registry: UserActivityTabRegistry,
+  now: number,
+) => {
+  const nextRegistry: UserActivityTabRegistry = {};
+
+  Object.entries(registry).forEach(([uid, tabs]) => {
+    const activeTabs = Object.entries(tabs).filter(
+      ([tabId, lastSeenAt]) =>
+        tabId.trim() &&
+        Number.isFinite(lastSeenAt) &&
+        now - lastSeenAt <= USER_ACTIVITY_TAB_STALE_MS,
+    );
+
+    if (activeTabs.length > 0) {
+      nextRegistry[uid] = activeTabs.reduce<Record<string, number>>(
+        (currentTabs, [tabId, lastSeenAt]) => {
+          currentTabs[tabId] = lastSeenAt as number;
+          return currentTabs;
+        },
+        {},
+      );
+    }
+  });
+
+  return nextRegistry;
+};
 
 const sortBookingsNewestFirst = (left: AdminBooking, right: AdminBooking) => {
   if (left.date !== right.date) {
@@ -383,6 +518,7 @@ function App() {
     isOrganizationVerificationSubmitting,
     setIsOrganizationVerificationSubmitting,
   ] = useState(false);
+  const [verificationFullName, setVerificationFullName] = useState('');
   const [verificationCardNumber, setVerificationCardNumber] = useState('');
   const [verificationDivision, setVerificationDivision] = useState('');
   const [verificationCardImage, setVerificationCardImage] = useState<File | null>(
@@ -390,6 +526,8 @@ function App() {
   );
   const [postAuthRedirectPath, setPostAuthRedirectPath] = useState<string | null>(null);
   const [promoReadyAt, setPromoReadyAt] = useState(0);
+  const userActivityTabIdRef = useRef(createUserActivityTabId());
+  const lastUserActivitySyncAtRef = useRef(0);
   const {
     activeUserTab,
     username,
@@ -403,6 +541,7 @@ function App() {
     selectedCategoryId,
     setActiveUserTab,
     setActiveUsers,
+    setAppData,
     setAdminDateFilter,
     setAdminPassword,
     setAdminRememberMe,
@@ -485,6 +624,7 @@ function App() {
           setPromoReadyAt(0);
           setUsername('');
           setEmail('');
+          setVerificationFullName('');
           setVerificationCardNumber('');
           setVerificationDivision('');
           setVerificationCardImage(null);
@@ -509,6 +649,7 @@ function App() {
 
           setCurrentUserProfile(profile);
           setHasLoadedUserProfile(true);
+          setVerificationFullName(profile?.fullName ?? '');
           setVerificationDivision(profile?.organizationDivision ?? '');
           setUsername((currentUsername) =>
             getUserDisplayName(nextUser, {
@@ -523,6 +664,7 @@ function App() {
 
           setHasLoadedUserProfile(true);
           setCurrentUserProfile(null);
+          setVerificationFullName('');
           setVerificationDivision('');
           setUsername((currentUsername) =>
             getUserDisplayName(nextUser, {
@@ -567,20 +709,53 @@ function App() {
     }
 
     const unsubscribe = onAuthStateChanged(getAdminAuth(), (nextUser) => {
-      if (!isMounted) {
-        return;
-      }
+      void (async () => {
+        if (!isMounted) {
+          return;
+        }
 
-      setAdminUser(nextUser);
-      setIsAdminAuthReady(true);
+        if (!nextUser) {
+          setAdminUser(null);
+          setIsAdminAuthReady(true);
+          setAdminPassword('');
+          setShowAdminPassword(false);
+          return;
+        }
 
-      if (!nextUser) {
-        setAdminPassword('');
-        setShowAdminPassword(false);
-        return;
-      }
+        setIsAdminAuthReady(false);
 
-      setAdminUsername(nextUser.email ?? '');
+        try {
+          const isAdminAuthorized = await hasAdminAccess(
+            nextUser.uid,
+            nextUser.email ?? '',
+          );
+
+          if (!isMounted) {
+            return;
+          }
+
+          if (!isAdminAuthorized) {
+            setAdminUser(null);
+            setAdminPassword('');
+            setShowAdminPassword(false);
+            await firebaseSignOut(getAdminAuth()).catch(() => undefined);
+            return;
+          }
+
+          setAdminUser(nextUser);
+          setAdminUsername(nextUser.email ?? '');
+        } catch {
+          if (!isMounted) {
+            return;
+          }
+
+          setAdminUser(null);
+        } finally {
+          if (isMounted) {
+            setIsAdminAuthReady(true);
+          }
+        }
+      })();
     });
 
     return () => {
@@ -630,6 +805,104 @@ function App() {
     setDontShowPromo(false);
   };
 
+  const syncUserActivityTabPresence = useCallback((uid: string) => {
+    const now = Date.now();
+    const nextRegistry = pruneUserActivityTabRegistry(
+      readUserActivityTabRegistry(),
+      now,
+    );
+    const currentTabs = {
+      ...(nextRegistry[uid] ?? {}),
+      [userActivityTabIdRef.current]: now,
+    };
+
+    nextRegistry[uid] = currentTabs;
+    persistUserActivityTabRegistry(nextRegistry);
+
+    return now;
+  }, []);
+
+  const syncUserActivityIdentityPresence = useCallback(
+    (uid: string, identityKeys: string[], now: number) => {
+      const nextRegistry = pruneUserActivityIdentityRegistry(
+        readUserActivityIdentityRegistry(),
+        USER_ACTIVITY_TAB_STALE_MS,
+        now,
+      );
+
+      identityKeys.forEach((identityKey) => {
+        nextRegistry[identityKey] = {
+          uid,
+          lastSeenAt: now,
+        };
+      });
+
+      persistUserActivityIdentityRegistry(nextRegistry);
+    },
+    [],
+  );
+
+  const clearUserActivityTabPresence = useCallback((uid: string) => {
+    const now = Date.now();
+    const nextRegistry = pruneUserActivityTabRegistry(
+      readUserActivityTabRegistry(),
+      now,
+    );
+    const currentTabs = { ...(nextRegistry[uid] ?? {}) };
+
+    delete currentTabs[userActivityTabIdRef.current];
+
+    if (Object.keys(currentTabs).length > 0) {
+      nextRegistry[uid] = currentTabs;
+    } else {
+      delete nextRegistry[uid];
+    }
+
+    persistUserActivityTabRegistry(nextRegistry);
+
+    return Object.keys(currentTabs).length;
+  }, []);
+
+  const clearAllUserActivityTabPresence = useCallback((uid: string) => {
+    const nextRegistry = pruneUserActivityTabRegistry(
+      readUserActivityTabRegistry(),
+      Date.now(),
+    );
+
+    if (!nextRegistry[uid]) {
+      return false;
+    }
+
+    delete nextRegistry[uid];
+    persistUserActivityTabRegistry(nextRegistry);
+    return true;
+  }, []);
+
+  const clearUserActivityIdentityPresence = useCallback(
+    (uid: string, identityKeys: string[]) => {
+      const nextRegistry = pruneUserActivityIdentityRegistry(
+        readUserActivityIdentityRegistry(),
+        USER_ACTIVITY_TAB_STALE_MS,
+        Date.now(),
+      );
+      let hasChanges = false;
+
+      identityKeys.forEach((identityKey) => {
+        if (nextRegistry[identityKey]?.uid !== uid) {
+          return;
+        }
+
+        delete nextRegistry[identityKey];
+        hasChanges = true;
+      });
+
+      if (hasChanges) {
+        persistUserActivityIdentityRegistry(nextRegistry);
+      }
+    },
+    [],
+  );
+
   const updateCurrentUserActivity = useCallback(
     async (isActive: boolean) => {
       const activityUser = getFirebaseAuth().currentUser ?? authUser;
@@ -652,39 +925,124 @@ function App() {
     [authUser, currentUserProfile, email],
   );
 
+  const clearCurrentUserPresenceForLogout = useCallback(async () => {
+    const activityUser = getFirebaseAuth().currentUser ?? authUser;
+
+    if (!activityUser) {
+      return;
+    }
+
+    clearAllUserActivityTabPresence(activityUser.uid);
+    clearUserActivityIdentityPresence(
+      activityUser.uid,
+      buildUserActivityIdentityKeys({
+        uid: activityUser.uid,
+        email: activityUser.email ?? email,
+        normalizedUsername: currentUserProfile?.normalizedUsername ?? '',
+      }),
+    );
+    lastUserActivitySyncAtRef.current = 0;
+    await updateCurrentUserActivity(false);
+  }, [
+    authUser,
+    clearAllUserActivityTabPresence,
+    clearUserActivityIdentityPresence,
+    currentUserProfile?.normalizedUsername,
+    email,
+    updateCurrentUserActivity,
+  ]);
+
   useEffect(() => {
     if (!authUser || !currentUserProfile) {
       return () => undefined;
     }
 
-    const markActive = () => {
+    const currentUserUid = authUser.uid;
+    const currentUserIdentityKeys = buildUserActivityIdentityKeys({
+      uid: currentUserUid,
+      email: authUser.email ?? email,
+      normalizedUsername: currentUserProfile.normalizedUsername,
+    });
+    const syncActive = (forceRefresh = false) => {
+      const now = syncUserActivityTabPresence(currentUserUid);
+      syncUserActivityIdentityPresence(
+        currentUserUid,
+        currentUserIdentityKeys,
+        now,
+      );
+
+      if (
+        !forceRefresh &&
+        now - lastUserActivitySyncAtRef.current < USER_ACTIVITY_HEARTBEAT_MS / 2
+      ) {
+        return;
+      }
+
+      lastUserActivitySyncAtRef.current = now;
       void updateCurrentUserActivity(true);
     };
-    const markInactive = () => {
+    const syncInactiveIfLastTab = () => {
+      const remainingTabs = clearUserActivityTabPresence(currentUserUid);
+
+      if (remainingTabs > 0) {
+        return;
+      }
+
+      clearUserActivityIdentityPresence(
+        currentUserUid,
+        currentUserIdentityKeys,
+      );
+      lastUserActivitySyncAtRef.current = 0;
       void updateCurrentUserActivity(false);
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        markActive();
+        syncActive(true);
       }
     };
+    const handleFocus = () => {
+      syncActive(true);
+    };
+    const handleInteraction = () => {
+      syncActive(false);
+    };
 
-    markActive();
+    syncActive(true);
 
     const intervalId = window.setInterval(
-      markActive,
+      () => syncActive(true),
       USER_ACTIVITY_HEARTBEAT_MS,
     );
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('pagehide', markInactive);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handleFocus);
+    window.addEventListener('pointerdown', handleInteraction, {
+      passive: true,
+    });
+    window.addEventListener('keydown', handleInteraction);
+    window.addEventListener('pagehide', syncInactiveIfLastTab);
 
     return () => {
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('pagehide', markInactive);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handleFocus);
+      window.removeEventListener('pointerdown', handleInteraction);
+      window.removeEventListener('keydown', handleInteraction);
+      window.removeEventListener('pagehide', syncInactiveIfLastTab);
+      syncInactiveIfLastTab();
     };
-  }, [authUser, currentUserProfile, updateCurrentUserActivity]);
+  }, [
+    authUser,
+    clearUserActivityIdentityPresence,
+    clearUserActivityTabPresence,
+    currentUserProfile,
+    email,
+    syncUserActivityIdentityPresence,
+    syncUserActivityTabPresence,
+    updateCurrentUserActivity,
+  ]);
 
   const handleAuthRouteChange = (nextView: AuthView) => {
     if (isAuthSubmitting) {
@@ -738,11 +1096,43 @@ function App() {
         }
 
         await setAdminFirebaseAuthPersistence(adminRememberMe);
-        await signInWithEmailAndPassword(
+        const adminCredential = await signInWithEmailAndPassword(
           getAdminAuth(),
           adminUsername.trim(),
           adminPassword,
         );
+
+        let isAdminAuthorized = false;
+
+        try {
+          isAdminAuthorized = await hasAdminAccess(
+            adminCredential.user.uid,
+            adminCredential.user.email ?? '',
+            { forceRefreshToken: true },
+          );
+        } catch (error) {
+          await firebaseSignOut(getAdminAuth()).catch(() => undefined);
+          setPostAuthRedirectPath(null);
+          setModalState(
+            createErrorModal(
+              'ตรวจสอบสิทธิ์แอดมินไม่สำเร็จ',
+              getAdminAccessErrorMessage(adminCredential.user.uid, error),
+            ),
+          );
+          return;
+        }
+
+        if (!isAdminAuthorized) {
+          await firebaseSignOut(getAdminAuth());
+          setPostAuthRedirectPath(null);
+          setModalState(
+            createErrorModal(
+              'ไม่มีสิทธิ์เข้าใช้งาน',
+              getAdminAccessErrorMessage(adminCredential.user.uid),
+            ),
+          );
+          return;
+        }
 
         const successCopy = getAuthSuccessMessage('admin');
         setModalState(createSuccessModal(successCopy.title, successCopy.desc));
@@ -913,7 +1303,7 @@ function App() {
   const handleUserLogout = async () => {
     try {
       if (authUser) {
-        await updateCurrentUserActivity(false);
+        await clearCurrentUserPresenceForLogout();
         await firebaseSignOut(getFirebaseAuth());
       }
 
@@ -1039,7 +1429,7 @@ function App() {
   const handleBackToLoginFromVerification = async () => {
     try {
       if (authUser) {
-        await updateCurrentUserActivity(false);
+        await clearCurrentUserPresenceForLogout();
         await firebaseSignOut(getFirebaseAuth());
       }
 
@@ -1048,6 +1438,23 @@ function App() {
       navigate(DEFAULT_ROUTE);
     } catch (error) {
       setModalState(getFirebaseAuthErrorModal(error, 'verify-email'));
+    }
+  };
+
+  const handleVerificationCardImageChange = (file: File | null) => {
+    try {
+      validateVerificationCardImageFile(file);
+      setVerificationCardImage(file);
+    } catch (error) {
+      setVerificationCardImage(null);
+      setModalState(
+        createErrorModal(
+          'ไฟล์รูปไม่ถูกต้อง',
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : 'ไม่สามารถใช้ไฟล์รูปนี้ได้ กรุณาเลือกไฟล์ใหม่อีกครั้ง',
+        ),
+      );
     }
   };
 
@@ -1070,6 +1477,7 @@ function App() {
         const updatedProfile = await submitOrganizationVerificationRequest({
           uid: authUser.uid,
           email: authUser.email,
+          fullName: verificationFullName,
           division: verificationDivision,
           cardNumber: verificationCardNumber,
           cardImage: verificationCardImage,
@@ -1078,6 +1486,7 @@ function App() {
         setCurrentUserProfile(updatedProfile);
         setHasLoadedUserProfile(true);
         setVerificationCardNumber('');
+        setVerificationFullName(updatedProfile?.fullName ?? verificationFullName);
         setVerificationDivision(updatedProfile?.organizationDivision ?? verificationDivision);
         setVerificationCardImage(null);
         setPostAuthRedirectPath(null);
@@ -1105,7 +1514,8 @@ function App() {
       }
     };
 
-  const canReserveEquipment = isVerifiedOrganizationProfile(currentUserProfile);
+  const canReserveEquipment =
+    isVerifiedOrganizationProfile(currentUserProfile);
   const handleVerifiedReserveItem = (
     item: EquipmentItem,
     schedule?: BookingScheduleInput,
@@ -1130,8 +1540,8 @@ function App() {
   );
   const handleAdminEquipmentCatalogChanged = useCallback(async () => {
     const nextSnapshot = await appDataStore.resetSnapshot();
-    state.setAppData(nextSnapshot);
-  }, [state.setAppData]);
+    setAppData(nextSnapshot);
+  }, [setAppData]);
   const approvedViewerBookings = viewerBookings.filter(
     (booking) => booking.status === 'อนุมัติแล้ว',
   );
@@ -1244,6 +1654,7 @@ function App() {
         return (
           <VerifyOrganizationPage
             email={authUser?.email ?? email}
+            fullName={verificationFullName}
             division={verificationDivision}
             cardNumber={verificationCardNumber}
             cardImage={verificationCardImage}
@@ -1252,9 +1663,10 @@ function App() {
                 currentUserProfile?.organizationVerificationRequestStatus === 'pending',
             )}
             isSubmitting={isOrganizationVerificationSubmitting}
+            onFullNameChange={setVerificationFullName}
             onDivisionChange={setVerificationDivision}
             onCardNumberChange={setVerificationCardNumber}
-            onCardImageChange={setVerificationCardImage}
+            onCardImageChange={handleVerificationCardImageChange}
             onSubmit={handleOrganizationVerificationSubmit}
             onBackToProfile={() => handleUserRouteChange('user')}
           />
