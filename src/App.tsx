@@ -109,12 +109,36 @@ const VERIFY_ORGANIZATION_ROUTE = '/verify-organization';
 const REDIRECT_DELAY_MS = 1400;
 const PROMO_POPUP_DELAY_MS = 120;
 const PROMO_AFTER_AUTH_BUFFER_MS = 500;
+const ORGANIZATION_VERIFICATION_SUBMIT_TIMEOUT_MS = 95_000;
 const USER_ACTIVITY_HEARTBEAT_MS = 60000;
 const USER_ACTIVITY_TABS_STORAGE_KEY = 'systemhub-user-activity-tabs-v1';
 const USER_ACTIVITY_TAB_STALE_MS = USER_ACTIVITY_HEARTBEAT_MS * 3;
 const CATEGORY_IDS: CategoryId[] = ['it', 'av', 'furniture', 'inspection'];
 const HISTORY_TIME_PATTERN = /(\d{1,2}:\d{2})/;
 const DEFAULT_PICKUP_LOCATION = 'ฝ่ายอำนวยการ | งานส่งกำลังบำรุงและงานเทคโนฯ';
+
+const withSubmissionTimeout = async <T,>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+) => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(message));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
 
 const getAdminAccessErrorMessage = (uid: string, error?: unknown) => {
   if (typeof error === 'object' && error !== null) {
@@ -1474,14 +1498,18 @@ function App() {
 
       try {
         setIsOrganizationVerificationSubmitting(true);
-        const updatedProfile = await submitOrganizationVerificationRequest({
-          uid: authUser.uid,
-          email: authUser.email,
-          fullName: verificationFullName,
-          division: verificationDivision,
-          cardNumber: verificationCardNumber,
-          cardImage: verificationCardImage,
-        });
+        const updatedProfile = await withSubmissionTimeout(
+          submitOrganizationVerificationRequest({
+            uid: authUser.uid,
+            email: authUser.email,
+            fullName: verificationFullName,
+            division: verificationDivision,
+            cardNumber: verificationCardNumber,
+            cardImage: verificationCardImage,
+          }),
+          ORGANIZATION_VERIFICATION_SUBMIT_TIMEOUT_MS,
+          'ส่งคำขอยืนยันตัวตนใช้เวลานานเกินไป กรุณารีเฟรชหน้า ตรวจสอบอินเทอร์เน็ต แล้วลองส่งใหม่อีกครั้ง',
+        );
 
         setCurrentUserProfile(updatedProfile);
         setHasLoadedUserProfile(true);
@@ -1501,6 +1529,7 @@ function App() {
           handlers.closeModal();
         }, REDIRECT_DELAY_MS);
       } catch (error) {
+        console.error('Failed to submit organization verification request.', error);
         setModalState(
           createErrorModal(
             'ส่งคำขอไม่สำเร็จ',
