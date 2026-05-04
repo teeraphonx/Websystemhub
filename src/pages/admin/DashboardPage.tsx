@@ -86,7 +86,7 @@ const isEnvFlagEnabled = (value: string | undefined, defaultValue: boolean) => {
 
 const SHOW_EQUIPMENT_DELETE_PANEL = isEnvFlagEnabled(
   import.meta.env.VITE_SHOW_EQUIPMENT_DELETE,
-  false,
+  true,
 );
 
 const EQUIPMENT_CONDITION_LABELS: Record<EquipmentConditionStatus, string> = {
