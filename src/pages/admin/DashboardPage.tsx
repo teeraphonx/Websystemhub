@@ -74,20 +74,7 @@ const ACTIVE_BOOKING_STATUSES = new Set<AdminBookingStatus>([
   'รออนุมัติ',
   'อนุมัติแล้ว',
 ]);
-const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
-const isEnvFlagEnabled = (value: string | undefined, defaultValue: boolean) => {
-  if (typeof value !== 'string') {
-    return defaultValue;
-  }
-
-  return TRUTHY_ENV_VALUES.has(value.trim().toLowerCase());
-};
-
-const SHOW_EQUIPMENT_DELETE_PANEL = isEnvFlagEnabled(
-  import.meta.env.VITE_SHOW_EQUIPMENT_DELETE,
-  true,
-);
+const SHOW_EQUIPMENT_DELETE_PANEL = true;
 
 const EQUIPMENT_CONDITION_LABELS: Record<EquipmentConditionStatus, string> = {
   normal: 'ปกติ',
