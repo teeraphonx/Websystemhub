@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import AdminBookingTable from '../../components/admin/AdminBookingTable';
 import AdminCalendar from '../../components/admin/AdminCalendar';
 import AdminEquipmentCreateModal from '../../components/admin/AdminEquipmentCreateModal';
@@ -256,6 +257,7 @@ export default function DashboardPage({
   onEquipmentCatalogChanged,
   onLogout,
 }: DashboardPageProps) {
+  const location = useLocation();
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isUserDirectoryOpen, setIsUserDirectoryOpen] = useState(false);
   const [isEquipmentCreateOpen, setIsEquipmentCreateOpen] = useState(false);
@@ -621,14 +623,14 @@ export default function DashboardPage({
     );
   };
 
-  const handleOpenEquipmentDelete = () => {
+  const handleOpenEquipmentDelete = useCallback(() => {
     setIsEquipmentDeleteOpen(true);
     setEquipmentPage(1);
 
     if (adminEquipment.length === 0 && !isEquipmentLoading) {
       void loadAdminEquipment().catch(() => undefined);
     }
-  };
+  }, [adminEquipment.length, isEquipmentLoading, loadAdminEquipment]);
 
   const handleCloseEquipmentDelete = useCallback(() => {
     if (isDeletingEquipmentId !== null) {
@@ -728,6 +730,18 @@ export default function DashboardPage({
 
     void loadAdminEquipment().catch(() => undefined);
   }, [loadAdminEquipment]);
+
+  useEffect(() => {
+    const routeParams = new URLSearchParams(location.search);
+    const shouldOpenEquipmentDelete =
+      routeParams.get('equipment') === 'delete' ||
+      routeParams.get('panel') === 'delete-equipment' ||
+      location.hash === '#delete-equipment';
+
+    if (shouldOpenEquipmentDelete) {
+      handleOpenEquipmentDelete();
+    }
+  }, [handleOpenEquipmentDelete, location.hash, location.search]);
 
   useEffect(() => {
     if (!isUserDirectoryOpen) {
@@ -910,6 +924,63 @@ export default function DashboardPage({
 
           <button onClick={onLogout} className="systemhub-admin-logout flex items-center gap-2 rounded-full px-5 py-2.5 text-[12px] font-bold transition-all shadow-lg">
             <LogOut size={16} /> ออกจากระบบ
+          </button>
+        </div>
+      </div>
+
+      <div
+        id="delete-equipment"
+        className="systemhub-admin-panel mb-6 flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"
+      >
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="systemhub-admin-stat-orb systemhub-admin-stat-orb--warning h-12 w-12 shrink-0">
+            <Package size={18} strokeWidth={2.5} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--systemhub-accent)]">
+              Inventory Control
+            </p>
+            <h3 className="mt-1 text-xl font-black tracking-wide text-white">
+              จัดการครุภัณฑ์
+            </h3>
+            <p className="mt-1 text-[12px] font-bold text-gray-400">
+              {adminEquipment.length > 0
+                ? `${adminEquipment.length.toLocaleString()} รายการจาก backend`
+                : isEquipmentLoading
+                  ? 'กำลังโหลดรายการจาก backend'
+                  : 'พร้อมโหลดรายการจาก backend'}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-3 md:w-auto">
+          <button
+            type="button"
+            onClick={handleOpenEquipmentDelete}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[rgba(239,68,68,0.34)] bg-[linear-gradient(135deg,rgba(127,29,29,0.95),rgba(239,68,68,0.88))] px-5 py-3 text-[12px] font-black tracking-[0.16em] text-white shadow-[0_10px_28px_rgba(239,68,68,0.24)] transition-all hover:shadow-[0_14px_34px_rgba(239,68,68,0.3)]"
+          >
+            <Trash2 size={16} strokeWidth={2.4} />
+            ลบครุภัณฑ์
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsEquipmentCreateOpen(true)}
+            className="systemhub-primary-button inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-[12px] font-black tracking-[0.16em] text-white transition-all"
+          >
+            <PackagePlus size={16} strokeWidth={2.4} />
+            เพิ่มครุภัณฑ์
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleRefreshEquipmentCatalog()}
+            disabled={isEquipmentLoading || isDeletingEquipmentId !== null}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[rgba(59,130,246,0.3)] bg-[rgba(37,99,235,0.1)] px-5 py-3 text-[12px] font-black tracking-[0.16em] text-[var(--systemhub-accent)] transition-colors hover:bg-[rgba(37,99,235,0.18)] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCcw
+              size={15}
+              className={isEquipmentLoading ? 'animate-spin' : ''}
+            />
+            รีเฟรช
           </button>
         </div>
       </div>
