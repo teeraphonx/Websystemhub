@@ -18,6 +18,7 @@ import { firebaseConfig } from './firebase';
 const ADMIN_APP_NAME = 'systemhub-admin-auth';
 const ADMINS_COLLECTION = 'admins';
 const ADMIN_ROLE_VALUES = new Set(['admin', 'administrator', 'superadmin']);
+const ADMIN_ACCESS_CHECK_TIMEOUT_MS = 12_000;
 
 const resolveAdminFirebaseValue = (value: string | undefined, fallback: string) =>
   value?.trim() || fallback;
@@ -84,24 +85,76 @@ const hasAdminRole = (value: unknown) => {
     return value.some(hasAdminRole);
   }
 
+  if (typeof value === 'object' && value !== null) {
+    return Object.entries(value).some(
+      ([role, isEnabled]) =>
+        ADMIN_ROLE_VALUES.has(normalizeAdminRole(role)) &&
+        hasTruthyAdminFlag(isEnabled),
+    );
+  }
+
   return ADMIN_ROLE_VALUES.has(normalizeAdminRole(value));
 };
 
 const hasTruthyAdminFlag = (value: unknown) =>
-  value === true || normalizeAdminRole(value) === 'true';
+  value === true || value === 1 || normalizeAdminRole(value) === 'true';
+
+const hasFalseyAdminFlag = (value: unknown) =>
+  value === false || value === 0 || normalizeAdminRole(value) === 'false';
 
 const isActiveAdminRecord = (data: DocumentData) => {
-  if (data.active === false || data.disabled === true) {
+  if (hasFalseyAdminFlag(data.active) || hasTruthyAdminFlag(data.disabled)) {
     return false;
   }
 
   return (
-    data.active === true ||
+    hasTruthyAdminFlag(data.active) ||
     hasTruthyAdminFlag(data.admin) ||
     hasTruthyAdminFlag(data.isAdmin) ||
     hasAdminRole(data.role) ||
     hasAdminRole(data.roles)
   );
+};
+
+const isFirestorePermissionDeniedError = (error: unknown) => {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  const errorRecord = error as { code?: unknown; message?: unknown };
+  const errorCode =
+    typeof errorRecord.code === 'string' ? errorRecord.code.trim() : '';
+  const errorMessage =
+    typeof errorRecord.message === 'string' ? errorRecord.message.trim() : '';
+
+  return (
+    errorCode === 'permission-denied' ||
+    errorCode === 'firestore/permission-denied' ||
+    errorMessage.includes('Missing or insufficient permissions')
+  );
+};
+
+const withAdminAccessTimeout = async <T>(promise: Promise<T>) => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(
+            new Error(
+              'ตรวจสอบสิทธิ์แอดมินใช้เวลานานเกินไป กรุณาตรวจสอบการตั้งค่า Firebase หรือ env ของ host แล้วลองใหม่อีกครั้ง',
+            ),
+          );
+        }, ADMIN_ACCESS_CHECK_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 };
 
 const getCurrentAdminUserByUid = (uid: string) => {
@@ -183,22 +236,45 @@ export const hasAdminAccess = async (
     return true;
   }
 
-  if (await hasAdminClaimAccess(uid, options.forceRefreshToken)) {
+  return withAdminAccessTimeout(
+    resolveAdminAccess(uid, email, options.forceRefreshToken),
+  );
+};
+
+const resolveAdminAccess = async (
+  uid: string,
+  email = '',
+  forceRefreshToken = false,
+) => {
+  if (await hasAdminClaimAccess(uid, forceRefreshToken)) {
     return true;
   }
 
   const adminDocumentIds = Array.from(
     new Set([uid, normalizeAdminEmail(email)].filter(Boolean)),
   );
+  let permissionDeniedError: unknown = null;
 
   for (const adminDocumentId of adminDocumentIds) {
-    const adminSnapshot = await getDoc(
-      doc(getAdminDb(), ADMINS_COLLECTION, adminDocumentId),
-    );
+    try {
+      const adminSnapshot = await getDoc(
+        doc(getAdminDb(), ADMINS_COLLECTION, adminDocumentId),
+      );
 
-    if (adminSnapshot.exists() && isActiveAdminRecord(adminSnapshot.data())) {
-      return true;
+      if (adminSnapshot.exists() && isActiveAdminRecord(adminSnapshot.data())) {
+        return true;
+      }
+    } catch (error) {
+      if (!isFirestorePermissionDeniedError(error)) {
+        throw error;
+      }
+
+      permissionDeniedError ??= error;
     }
+  }
+
+  if (permissionDeniedError) {
+    throw permissionDeniedError;
   }
 
   return false;

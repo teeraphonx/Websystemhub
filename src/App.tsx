@@ -153,11 +153,11 @@ const getAdminAccessErrorMessage = (uid: string, error?: unknown) => {
       errorCode === 'firestore/permission-denied' ||
       errorMessage.includes('Missing or insufficient permissions')
     ) {
-      return `ยังอ่านสิทธิ์แอดมินไม่ได้ กรุณาเพิ่ม custom claim admin=true หรือ role=admin, เปิดสิทธิ์ให้อ่านเอกสาร admins/${uid} หรือ admins/{email} ใน Firestore หรือเพิ่ม UID ไว้ใน VITE_ADMIN_ALLOWED_UIDS หรืออีเมลไว้ใน VITE_ADMIN_ALLOWED_EMAILS ก่อน`;
+      return `ยังอ่านสิทธิ์แอดมินไม่ได้ กรุณาเพิ่ม custom claim admin=true หรือ role=admin, เปิดสิทธิ์ให้อ่านเอกสาร admins/${uid} หรือ admins/{email} ใน Firestore หรือเพิ่ม UID ไว้ใน VITE_ADMIN_ALLOWED_UIDS หรืออีเมลไว้ใน VITE_ADMIN_ALLOWED_EMAILS บน host ที่ใช้ deploy ก่อน โปรดทราบว่าไฟล์ .env ในเครื่องไม่ถูก push ขึ้น GitHub`;
     }
   }
 
-  return `บัญชีนี้ยังไม่ได้รับสิทธิ์หน้าแอดมิน กรุณาเพิ่ม custom claim admin=true หรือ role=admin, สร้างเอกสาร admins/${uid} หรือ admins/{email} ใน Firestore แล้วตั้ง active=true/role=admin หรือเพิ่ม UID ไว้ใน VITE_ADMIN_ALLOWED_UIDS หรืออีเมลไว้ใน VITE_ADMIN_ALLOWED_EMAILS`;
+  return `บัญชีนี้ยังไม่ได้รับสิทธิ์หน้าแอดมิน กรุณาเพิ่ม custom claim admin=true หรือ role=admin, สร้างเอกสาร admins/${uid} หรือ admins/{email} ใน Firestore แล้วตั้ง active=true/role=admin หรือเพิ่ม UID ไว้ใน VITE_ADMIN_ALLOWED_UIDS หรืออีเมลไว้ใน VITE_ADMIN_ALLOWED_EMAILS บน host ที่ใช้ deploy ก่อน โปรดทราบว่าไฟล์ .env ในเครื่องไม่ถูก push ขึ้น GitHub`;
 };
 
 const getEmailVerificationActionSettings = () => ({

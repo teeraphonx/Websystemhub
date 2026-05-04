@@ -24,6 +24,24 @@ npm run build
 
 ไฟล์สำหรับ production จะถูกสร้างในโฟลเดอร์ `build`
 
+## Admin Access In Production
+
+ไฟล์ `.env` ในเครื่องถูก ignore และจะไม่ถูก push ขึ้น GitHub ดังนั้นถ้า deploy บน Netlify, Vercel หรือ host อื่น ต้องตั้งค่า environment variables ฝั่ง host ก่อน build ด้วย:
+
+```bash
+VITE_ADMIN_ALLOWED_EMAILS=admin@example.com
+VITE_ADMIN_ALLOWED_UIDS=
+VITE_ADMIN_FIREBASE_API_KEY=...
+VITE_ADMIN_FIREBASE_AUTH_DOMAIN=...
+VITE_ADMIN_FIREBASE_PROJECT_ID=...
+VITE_ADMIN_FIREBASE_STORAGE_BUCKET=...
+VITE_ADMIN_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_ADMIN_FIREBASE_APP_ID=...
+VITE_ADMIN_FIREBASE_MEASUREMENT_ID=...
+```
+
+ทางเลือกที่ปลอดภัยกว่า allow-list ใน env คือกำหนด Firebase custom claim เป็น `admin=true` หรือ `role=admin` ให้บัญชีแอดมิน แล้ว redeploy/ล็อกอินใหม่เพื่อ refresh token. ถ้าใช้ Firestore document ให้สร้าง `admins/{uid}` หรือ `admins/{email}` แล้วตั้งค่า `active=true` หรือ `role=admin` พร้อม rules ที่อนุญาตให้บัญชีแอดมินอ่านเอกสารนั้นได้.
+
 ## Deploy To Netlify
 
 โปรเจกต์นี้มีไฟล์ `netlify.toml` ให้แล้ว โดยตั้งค่าหลักไว้ดังนี้:
