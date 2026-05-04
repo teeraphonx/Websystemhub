@@ -24,6 +24,7 @@ import {
 interface AdminEquipmentCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onCreated?: () => Promise<void> | void;
 }
 
 const DEFAULT_CATEGORY = ADMIN_EQUIPMENT_CATEGORY_OPTIONS[0]?.value ?? '';
@@ -53,7 +54,7 @@ const groupedCategoryOptions = ADMIN_EQUIPMENT_CATEGORY_OPTIONS.reduce<
 const getErrorMessage = (error: unknown) => {
   if (error instanceof ApiError) {
     if (error.status === 401) {
-      return 'สิทธิ์แอดมินหมดอายุหรือ backend ยังตรวจสอบ Firebase admin token ไม่ผ่าน กรุณาเข้าสู่ระบบแอดมินใหม่อีกครั้งแล้วลองบันทึกอีกครั้ง';
+      return 'สิทธิ์แอดมินหมดอายุหรือ backend ยังตรวจสอบ Firebase admin token ไม่ผ่าน กรุณาเข้าสู่ระบบแอดมินใหม่อีกครั้ง หากยังไม่ผ่านให้ตั้ง custom claim admin=true หรือ role=admin ให้บัญชีนี้ใน Firebase/backend';
     }
 
     if (error.message.trim()) {
@@ -83,6 +84,7 @@ const formatFileSize = (size: number) => `${(size / (1024 * 1024)).toFixed(2)} M
 export default function AdminEquipmentCreateModal({
   isOpen,
   onClose,
+  onCreated,
 }: AdminEquipmentCreateModalProps) {
   const [formState, setFormState] = useState<CreateEquipmentInput>(
     createInitialFormState,
@@ -143,6 +145,20 @@ export default function AdminEquipmentCreateModal({
     setSuccessMessage('');
   };
 
+  const refreshCreatedEquipmentCatalog = async () => {
+    if (!onCreated) {
+      return '';
+    }
+
+    try {
+      await Promise.resolve(onCreated());
+      return '';
+    } catch (error) {
+      console.error('Failed to refresh equipment catalog after create.', error);
+      return ' แต่รีเฟรชรายการล่าสุดไม่สำเร็จ กรุณากดรีเฟรชรายการหรือโหลดหน้าใหม่อีกครั้ง';
+    }
+  };
+
   const handleClose = () => {
     if (isSubmitting) {
       return;
@@ -188,9 +204,10 @@ export default function AdminEquipmentCreateModal({
         const createdEquipmentId = createdEquipment?.id;
 
         if (!createdEquipmentId) {
+          const refreshWarning = await refreshCreatedEquipmentCatalog();
           clearFormFields();
           setErrorMessage(
-            `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว แต่ยังอัปโหลดรูปไม่สำเร็จ เพราะ backend ไม่ส่งรหัสรายการกลับมา`,
+            `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว แต่ยังอัปโหลดรูปไม่สำเร็จ เพราะ backend ไม่ส่งรหัสรายการกลับมา${refreshWarning}`,
           );
           return;
         }
@@ -198,16 +215,21 @@ export default function AdminEquipmentCreateModal({
         try {
           await uploadEquipmentImage(createdEquipmentId, imageFile);
         } catch (error) {
+          const refreshWarning = await refreshCreatedEquipmentCatalog();
           clearFormFields();
           setErrorMessage(
-            `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว แต่การอัปโหลดรูปไม่สำเร็จ: ${getErrorMessage(error)}`,
+            `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว แต่การอัปโหลดรูปไม่สำเร็จ: ${getErrorMessage(error)}${refreshWarning}`,
           );
           return;
         }
       }
 
+      const refreshWarning = await refreshCreatedEquipmentCatalog();
+
       setSuccessMessage(
-        `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว รายการใหม่จะซิงก์กลับเข้าหน้าจองอัตโนมัติเมื่อระบบรีเฟรชข้อมูลรอบถัดไป`,
+        refreshWarning
+          ? `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว${refreshWarning}`
+          : `เพิ่ม "${createdEquipmentName}" เรียบร้อยแล้ว และอัปเดตรายการในหน้าแอดมินแล้ว`,
       );
       clearFormFields();
     } catch (error) {

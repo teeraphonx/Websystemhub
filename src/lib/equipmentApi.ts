@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import type { CategoryId, CategoryItemsMap, EquipmentItem } from '../types';
 import { getAdminAuthToken } from './adminFirebase';
-import { apiFetch } from './api';
+import { ApiError, apiFetch } from './api';
 
 interface EquipmentSummaryResponse {
   equipment: BackendEquipment[];
@@ -419,6 +419,20 @@ const normalizeQuantity = (value: number, fallbackValue: number) => {
 const resolveCreatedEquipment = (response: CreateEquipmentResponse) =>
   response.equipment ?? response.item ?? response.data ?? null;
 
+const getRequiredAdminAuthToken = async () => {
+  const adminAuthToken = await getAdminAuthToken(true);
+
+  if (!adminAuthToken) {
+    throw new ApiError(
+      'ไม่พบ token แอดมิน กรุณาเข้าสู่ระบบแอดมินใหม่อีกครั้ง',
+      401,
+      null,
+    );
+  }
+
+  return adminAuthToken;
+};
+
 export const validateEquipmentImageFile = (file: File | null) => {
   if (!file) {
     return;
@@ -441,14 +455,12 @@ export async function createEquipment(
     normalizeQuantity(input.availableQuantity, totalQuantity),
     totalQuantity,
   );
-  const adminAuthToken = await getAdminAuthToken();
+  const adminAuthToken = await getRequiredAdminAuthToken();
   const response = await apiFetch<CreateEquipmentResponse>('/api/equipment', {
     method: 'POST',
-    headers: adminAuthToken
-      ? {
-          Authorization: `Bearer ${adminAuthToken}`,
-        }
-      : undefined,
+    headers: {
+      Authorization: `Bearer ${adminAuthToken}`,
+    },
     body: JSON.stringify({
       name: input.name.trim(),
       category: input.category.trim(),
@@ -471,17 +483,15 @@ export async function uploadEquipmentImage(
 ): Promise<void> {
   validateEquipmentImageFile(imageFile);
 
-  const adminAuthToken = await getAdminAuthToken();
+  const adminAuthToken = await getRequiredAdminAuthToken();
   const formData = new FormData();
   formData.append('image', imageFile, imageFile.name);
 
   await apiFetch<unknown>(`/api/equipment/${equipmentId}/image`, {
     method: 'POST',
-    headers: adminAuthToken
-      ? {
-          Authorization: `Bearer ${adminAuthToken}`,
-        }
-      : undefined,
+    headers: {
+      Authorization: `Bearer ${adminAuthToken}`,
+    },
     body: formData,
   });
 }
@@ -503,15 +513,13 @@ export async function fetchAdminEquipmentList(): Promise<AdminEquipmentListItem[
 }
 
 export async function deleteEquipment(equipmentId: number): Promise<void> {
-  const adminAuthToken = await getAdminAuthToken();
+  const adminAuthToken = await getRequiredAdminAuthToken();
 
   await apiFetch<unknown>(`/api/equipment/${equipmentId}`, {
     method: 'DELETE',
-    headers: adminAuthToken
-      ? {
-          Authorization: `Bearer ${adminAuthToken}`,
-        }
-      : undefined,
+    headers: {
+      Authorization: `Bearer ${adminAuthToken}`,
+    },
   });
 }
 
