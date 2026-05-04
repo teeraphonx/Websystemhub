@@ -1,9 +1,13 @@
+const DEFAULT_API_BASE_URL = 'https://backendweb-production-1d7f.up.railway.app';
+
 const normalizeBaseUrl = (value: string | undefined) => {
-  if (!value) {
-    return 'http://localhost:3000';
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue) {
+    return DEFAULT_API_BASE_URL;
   }
 
-  return value.replace(/\/$/, '');
+  return trimmedValue.replace(/\/$/, '');
 };
 
 export const API_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_URL);
